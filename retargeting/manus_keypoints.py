@@ -103,3 +103,25 @@ def frame_points_in_wrist(frame: ManusFrame) -> dict[str, list[np.ndarray]]:
     for finger, pts in frame.points.items():
         out[finger] = [rot.inv().apply(p - frame.wrist_pos) for p in pts]
     return out
+
+
+def frame_points_local(frame: ManusFrame) -> dict[str, list[np.ndarray]]:
+    """Return raw MANUS points relative to the wrist position only.
+
+    Use this when MANUS raw skeleton positions are already expressed in a
+    wrist/root-oriented frame. This avoids double-applying the IMU wrist
+    rotation, which makes stationary fingers appear to rotate when the hand
+    rotates.
+    """
+    return {
+        finger: [p - frame.wrist_pos for p in pts]
+        for finger, pts in frame.points.items()
+    }
+
+
+def frame_points(frame: ManusFrame, wrist_mode: str = "local") -> dict[str, list[np.ndarray]]:
+    if wrist_mode == "local":
+        return frame_points_local(frame)
+    if wrist_mode == "world":
+        return frame_points_in_wrist(frame)
+    raise ValueError(f"unknown wrist_mode: {wrist_mode}")
