@@ -135,3 +135,21 @@ before retargeting finger joints.
 - The angle mode intentionally drives the non-thumb base joints as fixed for
   now, but drives thumb `t0` because that joint provides important thumb travel
   in the V9 URDF.
+
+## GeoRT Prep
+
+GeoRT needs a human fingertip workspace and a robot fingertip workspace. Prepare
+the local GeoRT checkout like this:
+
+```powershell
+cd C:\Users\henry\Desktop\hand_capture
+.\.venv-geort\Scripts\python.exe -m retargeting.discover_v9_joint_limits
+python -m retargeting.geort_prepare prepare-hand
+python -m retargeting.geort_prepare export-human `
+  --manus-csv C:\Users\henry\Desktop\hand_capture\recordings\live_mujoco_YYYY\manus_raw_skeleton.csv
+```
+
+`discover_v9_joint_limits` uses collision-mesh bounding boxes as conservative
+proxies, sweeps each joint from neutral, and writes
+`config\hand_v9_discovered_limits.json`. `prepare-hand` uses that file when it
+generates `external\GeoRT\assets\hand_v9_right\robot_geort.urdf`.

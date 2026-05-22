@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.venv-geort/
 
 recordings/
 backups/
@@ -27,3 +28,4 @@ linux_manus_logger/ManusSDK/lib/
 
 # Local scratch output
 linux_manus_logger/log.txt
+external/
