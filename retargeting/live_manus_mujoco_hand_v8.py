@@ -1,0 +1,299 @@
+from __future__ import annotations
+
+import argparse
+import json
+import shlex
+import signal
+import subprocess
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import mujoco
+import mujoco.viewer
+import numpy as np
+
+from pipeline.manus_linux_logger import (
+    LINUX_MANUS_DIR,
+    WSL_DISTRO,
+    WSL_USER,
+    attach_manus_dongle,
+    count_manus_in_wsl,
+    wsl_path,
+)
+from retargeting.manus_keypoints import frame_from_jsonl, frame_points
+from retargeting.retarget_hand_v8 import DEFAULT_URDF, HandV8Retargeter
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SESSION_ROOT = PROJECT_ROOT / "recordings"
+DEFAULT_MJCF = Path(
+    r"C:\Users\henry\Downloads\Hand_V8_add_tip\Hand_V8_add_tip\.tmp_robot_right_identified_with_actuator.mjcf"
+)
+
+
+def _session_dir() -> Path:
+    stamp = datetime.now(timezone.utc).strftime("live_mujoco_%Y%m%d_%H%M%SZ")
+    return DEFAULT_SESSION_ROOT / stamp
+
+
+class LiveLog:
+    def __init__(self, path: Path):
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+
+    def write(self, message: str) -> None:
+        line = f"[{datetime.now(timezone.utc).isoformat()}] {message}"
+        print(message, flush=True)
+        with self._lock:
+            with self.path.open("a", encoding="utf-8", newline="\n") as f:
+                f.write(line + "\n")
+
+
+def start_manus_process(session_dir: Path, duration: int, log: LiveLog) -> subprocess.Popen:
+    session_dir.mkdir(parents=True, exist_ok=True)
+    log.write("Attaching MANUS dongle to WSL...")
+    for busid, status in attach_manus_dongle().items():
+        log.write(f"  {busid}: {status}")
+    log.write(f"WSL sees {count_manus_in_wsl()} MANUS dongle(s)")
+
+    session_wsl = wsl_path(session_dir)
+    logger_dir_wsl = wsl_path(LINUX_MANUS_DIR)
+    duration_arg = f" --duration {duration}" if duration > 0 else ""
+    cmd = (
+        f"cd {shlex.quote(logger_dir_wsl)} && "
+        f"./manus_integrated_logger --session-dir {shlex.quote(session_wsl)} "
+        f"--prefix manus_ --stream-jsonl{duration_arg}"
+    )
+    return subprocess.Popen(
+        ["wsl", "-d", WSL_DISTRO, "-u", WSL_USER, "--exec", "bash", "-lc", cmd],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+
+def stderr_printer(proc: subprocess.Popen, stop_evt: threading.Event, log: LiveLog) -> None:
+    if proc.stderr is None:
+        return
+    for line in proc.stderr:
+        if stop_evt.is_set():
+            break
+        clean = line.rstrip()
+        if clean:
+            log.write(f"[manus] {clean}")
+
+
+def mujoco_joint_qpos_addresses(model: mujoco.MjModel) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for j in range(model.njnt):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j)
+        if name:
+            out[name] = int(model.jnt_qposadr[j])
+    return out
+
+
+def apply_named_qpos(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    joint_addresses: dict[str, int],
+    joint_names: list[str],
+    q: np.ndarray,
+    alpha: float,
+    limits: bool,
+) -> None:
+    target = data.qpos.copy()
+    for name, value in zip(joint_names, q):
+        adr = joint_addresses.get(name)
+        if adr is None:
+            continue
+        v = float(value)
+        if limits:
+            joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            if joint_id >= 0:
+                lo, hi = model.jnt_range[joint_id]
+                v = float(np.clip(v, lo, hi))
+        target[adr] = v
+    data.qpos[:] = (1.0 - alpha) * data.qpos + alpha * target
+    data.qvel[:] = 0.0
+    mujoco.mj_forward(model, data)
+
+
+def run(args: argparse.Namespace) -> int:
+    log = LiveLog(args.session_dir / "live_mujoco.log")
+    log.write(f"Starting live MuJoCo retargeter session_dir={args.session_dir}")
+    log.write(f"Loading MuJoCo model: {args.mjcf}")
+
+    model = mujoco.MjModel.from_xml_path(str(args.mjcf))
+    data = mujoco.MjData(model)
+    joint_addresses = mujoco_joint_qpos_addresses(model)
+    log.write(f"MuJoCo joints: {', '.join(joint_addresses.keys())}")
+
+    retargeter = HandV8Retargeter(
+        args.urdf,
+        regularization=args.regularization,
+        smoothness=args.smoothness,
+        max_nfev=args.max_nfev,
+    )
+    missing = [name for name in retargeter.joint_names if name not in joint_addresses]
+    if missing:
+        raise RuntimeError(f"MuJoCo model is missing retarget joints: {missing}")
+
+    proc = start_manus_process(args.session_dir, args.duration, log)
+    stop_evt = threading.Event()
+    stderr_thread = threading.Thread(target=stderr_printer, args=(proc, stop_evt, log), daemon=True)
+    stderr_thread.start()
+
+    latest_q = np.zeros(len(retargeter.joint_names), dtype=float)
+    latest_stats: dict | None = None
+    lock = threading.Lock()
+    calibrated = threading.Event()
+    fatal: list[BaseException] = []
+    counts = {"seen": 0, "solved": 0, "skipped": 0}
+    start_time = time.perf_counter()
+
+    def stop_process(*_ignored) -> None:
+        stop_evt.set()
+        if proc.poll() is None:
+            proc.terminate()
+
+    def reader_loop() -> None:
+        nonlocal latest_q, latest_stats
+        seen = 0
+        solved = 0
+        skipped = 0
+        last_report = time.perf_counter()
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                if stop_evt.is_set():
+                    break
+                clean = line.strip()
+                if not clean:
+                    continue
+                try:
+                    obj = json.loads(clean)
+                except json.JSONDecodeError:
+                    log.write(f"[skip non-json stdout] {clean[:160]}")
+                    continue
+                frame = frame_from_jsonl(obj)
+                if frame is None:
+                    continue
+                if args.glove_id is not None and frame.glove_id != args.glove_id:
+                    continue
+
+                points = frame_points(frame, args.wrist_mode)
+                if not calibrated.is_set():
+                    if seen < args.calibration_frames:
+                        seen += 1
+                        continue
+                    calib = retargeter.calibrate(points)
+                    log.write(f"Calibrated on MANUS frame {frame.frame_seq}: {calib}")
+                    calibrated.set()
+
+                if seen % args.solve_every == 0:
+                    try:
+                        q, stats = retargeter.solve(points)
+                    except Exception as exc:
+                        skipped += 1
+                        log.write(f"[retarget skip] frame={frame.frame_seq} {exc}")
+                    else:
+                        solved += 1
+                        with lock:
+                            latest_q = q.copy()
+                            latest_stats = stats
+                            counts["seen"] = seen
+                            counts["solved"] = solved
+                            counts["skipped"] = skipped
+                seen += 1
+
+                now = time.perf_counter()
+                if now - last_report >= 2.0:
+                    elapsed = max(1e-6, now - start_time)
+                    err = latest_stats["mean_tip_error_m"] if latest_stats else float("nan")
+                    log.write(
+                        f"frames seen={seen} solved={solved} skipped={skipped} "
+                        f"solve_hz={solved / elapsed:.1f} tip_err={err:.4f}m"
+                    )
+                    last_report = now
+            stop_evt.set()
+        except BaseException as exc:
+            fatal.append(exc)
+            stop_evt.set()
+
+    signal.signal(signal.SIGINT, stop_process)
+    signal.signal(signal.SIGTERM, stop_process)
+
+    reader_thread = threading.Thread(target=reader_loop, name="manus-retarget-reader", daemon=True)
+    reader_thread.start()
+
+    try:
+        with mujoco.viewer.launch_passive(model, data) as viewer:
+            log.write("MuJoCo viewer opened")
+            viewer.cam.lookat[:] = np.array([0.0, 0.0, 0.06])
+            viewer.cam.distance = 0.28
+            viewer.cam.azimuth = 90
+            viewer.cam.elevation = -25
+            while viewer.is_running() and not stop_evt.is_set():
+                if fatal:
+                    raise fatal[0]
+                with lock:
+                    q = latest_q.copy()
+                    solved = counts["solved"]
+                apply_named_qpos(
+                    model,
+                    data,
+                    joint_addresses,
+                    retargeter.joint_names,
+                    q,
+                    alpha=args.display_alpha,
+                    limits=True,
+                )
+                viewer.sync()
+                if solved == 0 and int(time.perf_counter() - start_time) % 5 == 0:
+                    time.sleep(0.001)
+                else:
+                    time.sleep(max(0.0, 1.0 / args.display_hz))
+    finally:
+        stop_process()
+        reader_thread.join(timeout=3)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        stop_evt.set()
+        stderr_thread.join(timeout=2)
+        log.write("Stopped live MuJoCo retargeter")
+
+    return proc.returncode or 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Live MANUS Integrated -> Hand V8 MuJoCo viewer.")
+    parser.add_argument("--mjcf", type=Path, default=DEFAULT_MJCF)
+    parser.add_argument("--urdf", type=Path, default=DEFAULT_URDF)
+    parser.add_argument("--session-dir", type=Path, default=None)
+    parser.add_argument("--duration", type=int, default=0, help="0 = run until viewer closes or Ctrl-C")
+    parser.add_argument("--wrist-mode", choices=["local", "world"], default="local")
+    parser.add_argument("--calibration-frames", type=int, default=10)
+    parser.add_argument("--glove-id", type=int, default=None)
+    parser.add_argument("--solve-every", type=int, default=1, help="Solve IK every N MANUS frames")
+    parser.add_argument("--max-nfev", type=int, default=18)
+    parser.add_argument("--regularization", type=float, default=0.03)
+    parser.add_argument("--smoothness", type=float, default=0.2)
+    parser.add_argument("--display-alpha", type=float, default=0.65, help="0..1 smoothing for displayed qpos")
+    parser.add_argument("--display-hz", type=float, default=120.0)
+    args = parser.parse_args()
+    if args.session_dir is None:
+        args.session_dir = _session_dir()
+    args.solve_every = max(1, args.solve_every)
+    args.display_alpha = float(np.clip(args.display_alpha, 0.01, 1.0))
+    args.display_hz = max(15.0, float(args.display_hz))
+    return run(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

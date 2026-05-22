@@ -37,38 +37,37 @@ Output CSV columns:
 
 The sidecar `*.summary.json` contains aggregate error and calibration stats.
 
-## Live Rerun Visualization
+## Live MuJoCo Visualization
 
-Run the native live viewer. This starts MANUS Core Integrated in WSL itself and
-streams skeleton frames directly over stdout; the CSV files are still recorded
-but are no longer used as the live transport.
+Run the native live viewer. This starts MANUS Core Integrated in WSL itself,
+streams skeleton frames directly over stdout, retargets them, and writes the 21
+Hand V8 joint positions straight into MuJoCo.
 
 ```powershell
 cd C:\Users\henry\Desktop\hand_capture
-python -m retargeting.live_manus_hand_v8 --connect
+python -m retargeting.live_manus_mujoco_hand_v8
 ```
 
 Useful options:
 
 ```powershell
-python -m retargeting.live_manus_hand_v8 `
-  --connect `
-  --sample-every 1 `
-  --mesh-every 3 `
+python -m retargeting.live_manus_mujoco_hand_v8 `
+  --solve-every 1 `
+  --max-nfev 18 `
+  --display-alpha 0.65 `
   --wrist-mode local
 ```
 
-Rerun will show:
+The live script still records MANUS CSVs under:
 
-- `retarget/robot_hand`: solved Hand V8 keypoints and finger segments
-- `retarget/robot_mesh`: animated Hand V8 STL mesh instances
-- `retarget/urdf`: the Hand V8 URDF asset
-- `retarget/error/mean_tip_m`: IK diagnostic
+```text
+C:\Users\henry\Desktop\hand_capture\recordings\live_mujoco_...
+```
 
 Stop the dashboard session before running this standalone viewer; otherwise two
-MANUS Core Integrated instances can fight over the same dongle. The visualizer
-uses `--wrist-mode local` by default so wrist IMU rotation is not applied twice
-to stationary fingers.
+MANUS Core Integrated instances can fight over the same dongle. The MuJoCo
+viewer uses `--wrist-mode local` by default so wrist IMU rotation is not applied
+twice to stationary fingers.
 
 ## Notes
 
@@ -77,4 +76,4 @@ to stationary fingers.
   thumb has 5 DOF while the current MANUS keypoint selection has fewer directly
   comparable points.
 - The live viewer defaults to a lower IK iteration budget than offline CSV
-  retargeting so Rerun stays close to live.
+  retargeting so MuJoCo stays close to live.
