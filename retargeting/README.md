@@ -103,9 +103,9 @@ It writes:
 C:\Users\henry\Desktop\hand_capture\config\hand_v9_joint_calibration.json
 ```
 
-The live MuJoCo viewer does not load that file automatically in angle mode,
-because bad IK-derived calibrations can corrupt an otherwise stable curl solve.
-To test a calibration explicitly:
+The live MuJoCo viewer loads the new angle calibration automatically. It ignores
+old IK-derived calibrations because those can corrupt an otherwise stable curl
+solve. To test a calibration explicitly:
 
 ```powershell
 python -m retargeting.live_manus_mujoco_hand_v8 `

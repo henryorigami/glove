@@ -13,7 +13,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
-from retargeting.joint_calibration import apply_joint_calibration, load_joint_calibration
+from retargeting.joint_calibration import DEFAULT_JOINT_CALIBRATION, apply_joint_calibration, load_joint_calibration
 from retargeting.manus_stream import start_manus_process, stderr_printer
 from retargeting.manus_keypoints import frame_from_jsonl, frame_points
 from retargeting.angle_retarget import AngleRetargeter
@@ -133,6 +133,9 @@ def run(args: argparse.Namespace) -> int:
     joint_calibration = load_joint_calibration(args.joint_calibration)
     if joint_calibration is None:
         log.write("Joint calibration: none")
+    elif joint_calibration.get("kind") != "hand_v9_angle_calibration":
+        log.write(f"Joint calibration ignored: unsupported kind={joint_calibration.get('kind')!r}")
+        joint_calibration = None
     else:
         log.write(f"Joint calibration loaded: {args.joint_calibration}")
 
@@ -325,8 +328,8 @@ def main() -> int:
     parser.add_argument(
         "--joint-calibration",
         type=Path,
-        default=None,
-        help="Optional joint calibration JSON. Default is off because old IK-derived calibrations can corrupt angle mode.",
+        default=DEFAULT_JOINT_CALIBRATION,
+        help="Angle calibration JSON. Legacy IK-derived calibrations are ignored.",
     )
     args = parser.parse_args()
     if args.session_dir is None:

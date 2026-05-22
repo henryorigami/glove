@@ -12,16 +12,12 @@ from pathlib import Path
 import numpy as np
 
 from retargeting.hand_v8_mapping import FINGER_ROBOT
-from retargeting.joint_calibration import (
-    DEFAULT_JOINT_CALIBRATION,
-    model_forward_signs,
-    save_joint_calibration,
-    summarize_joint_samples,
-)
+from retargeting.angle_retarget import AngleRetargeter
+from retargeting.joint_calibration import DEFAULT_JOINT_CALIBRATION, save_joint_calibration, summarize_joint_samples
 from retargeting.live_manus_mujoco_hand_v8 import DEFAULT_MODEL_XML, DEFAULT_SESSION_ROOT, LiveLog, prepare_mujoco_xml
 from retargeting.manus_keypoints import frame_from_jsonl, frame_points
 from retargeting.manus_stream import start_manus_process, stderr_printer
-from retargeting.retarget_hand_v8 import DEFAULT_URDF, HandV8Retargeter
+from retargeting.retarget_hand_v8 import DEFAULT_URDF
 
 
 POSES = [
@@ -88,7 +84,7 @@ def reader_loop(proc, stop_evt: threading.Event, latest: LatestFrame, log: LiveL
 def collect_pose(
     pose_name: str,
     latest: LatestFrame,
-    retargeter: HandV8Retargeter,
+    retargeter: AngleRetargeter,
     duration_s: float,
     wrist_mode: str,
     log: LiveLog,
@@ -128,7 +124,7 @@ def pose_medians(samples_by_pose: dict[str, list[np.ndarray]]) -> dict[str, np.n
 
 
 def build_calibration(
-    retargeter: HandV8Retargeter,
+    retargeter: AngleRetargeter,
     samples_by_pose: dict[str, list[np.ndarray]],
     wrist_mode: str,
 ) -> dict:
@@ -136,7 +132,6 @@ def build_calibration(
     if "neutral" not in med:
         raise RuntimeError("neutral pose has no solved samples")
     neutral = med["neutral"]
-    forward = model_forward_signs(retargeter)
     name_to_idx = {name: i for i, name in enumerate(retargeter.joint_names)}
     all_samples = [q for samples in samples_by_pose.values() for q in samples]
     joints = {}
@@ -144,33 +139,45 @@ def build_calibration(
     for name in retargeter.joint_names:
         idx = name_to_idx[name]
         finger = next((f for f, spec in FINGER_ROBOT.items() if name in spec["joints"]), None)
+        if name.endswith("0") or finger is None:
+            joints[name] = {
+                "enabled": False,
+                "finger": finger,
+                "neutral_raw": float(neutral[idx]),
+                "display_neutral": 0.0,
+                "sign": 1.0,
+                "scale": 1.0,
+                "lower": 0.0,
+                "upper": 0.0,
+                "reason": "base/opposition joint held fixed by angle retargeter",
+            }
+            continue
+
         pose_name = f"{finger}_curl" if finger != "thumb" else "thumb_curl"
         curl_pose = med.get(pose_name, med.get("fist", neutral))
         observed_delta = float(curl_pose[idx] - neutral[idx])
-        observed_sign = 1.0 if observed_delta >= 0 else -1.0
-        desired_sign = float(forward.get(name, 1.0))
-        sign = desired_sign * observed_sign
+        desired_rom = desired_joint_rom(name)
+        scale = desired_rom / max(abs(observed_delta), 0.04)
+        scale = float(np.clip(scale, 0.7, 8.0))
 
-        transformed = [sign * (q[idx] - neutral[idx]) for q in all_samples]
+        transformed = [q[idx] - neutral[idx] for q in all_samples]
         stats = summarize_joint_samples(transformed)
-        lower = min(0.0, stats["p05"] * 1.25)
-        upper = max(0.0, stats["p95"] * 1.25)
-        if upper - lower < 0.08:
-            lower, upper = -0.05, 0.05
-        lower = float(np.clip(lower, -2.2, 2.2))
-        upper = float(np.clip(upper, -2.2, 2.2))
+        if observed_delta < 0:
+            lower, upper = -desired_rom, 0.0
+        else:
+            lower, upper = 0.0, desired_rom
 
         joints[name] = {
             "enabled": True,
             "finger": finger,
             "neutral_raw": float(neutral[idx]),
             "display_neutral": 0.0,
-            "sign": float(sign),
-            "scale": 1.0,
-            "lower": lower,
-            "upper": upper,
+            "sign": 1.0,
+            "scale": scale,
+            "lower": float(lower),
+            "upper": float(upper),
             "observed_curl_delta_raw": observed_delta,
-            "model_forward_sign": desired_sign,
+            "desired_rom_rad": desired_rom,
             "observed_samples": stats,
         }
 
@@ -184,7 +191,7 @@ def build_calibration(
     return {
         "version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "kind": "hand_v9_joint_calibration",
+        "kind": "hand_v9_angle_calibration",
         "wrist_mode": wrist_mode,
         "joint_names": retargeter.joint_names,
         "poses": list(samples_by_pose.keys()),
@@ -193,8 +200,25 @@ def build_calibration(
     }
 
 
+def desired_joint_rom(name: str) -> float:
+    if name[0] == "t":
+        return {
+            "t1": 1.35,
+            "t2": 1.75,
+            "t3": 1.55,
+            "t4": 1.25,
+        }.get(name, 0.0)
+    if name.endswith("1"):
+        return 1.85
+    if name.endswith("2"):
+        return 1.65
+    if name.endswith("3"):
+        return 1.25
+    return 0.0
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Guided MANUS -> Hand V9 joint direction/limit calibration.")
+    parser = argparse.ArgumentParser(description="Guided MANUS -> Hand V9 angle-retarget ROM calibration.")
     parser.add_argument("--out", type=Path, default=DEFAULT_JOINT_CALIBRATION)
     parser.add_argument("--session-dir", type=Path, default=None)
     parser.add_argument("--urdf", type=Path, default=DEFAULT_URDF)
@@ -202,7 +226,11 @@ def main() -> int:
     parser.add_argument("--wrist-mode", choices=["local", "world"], default="world")
     parser.add_argument("--pose-seconds", type=float, default=3.0)
     parser.add_argument("--calibration-frames", type=int, default=10)
-    parser.add_argument("--max-nfev", type=int, default=16)
+    parser.add_argument("--max-curl-rad", type=float, default=2.25)
+    parser.add_argument("--thumb-max-curl-rad", type=float, default=1.95)
+    parser.add_argument("--finger-sign", type=float, choices=[-1.0, 1.0], default=-1.0)
+    parser.add_argument("--thumb-sign", type=float, choices=[-1.0, 1.0], default=1.0)
+    parser.add_argument("--angle-smoothness", type=float, default=0.0)
     parser.add_argument("--glove-id", type=int, default=None)
     parser.add_argument("--prep-seconds", type=float, default=5.0)
     parser.add_argument("--manual-enter", action="store_true", help="Require Enter before each pose instead of timed countdowns")
@@ -216,7 +244,14 @@ def main() -> int:
     # Validate the MuJoCo XML early; this also writes the session-local fixed URDF.
     prepare_mujoco_xml(args.model_xml, args.session_dir)
 
-    retargeter = HandV8Retargeter(args.urdf, max_nfev=args.max_nfev, smoothness=0.0)
+    retargeter = AngleRetargeter(
+        args.urdf,
+        max_curl_rad=args.max_curl_rad,
+        thumb_max_curl_rad=args.thumb_max_curl_rad,
+        finger_sign=args.finger_sign,
+        thumb_sign=args.thumb_sign,
+        smoothness=args.angle_smoothness,
+    )
     proc = start_manus_process(args.session_dir, duration=0, log=log)
     stop_evt = threading.Event()
     latest = LatestFrame()
@@ -279,7 +314,7 @@ def main() -> int:
         save_joint_calibration(args.out, calibration)
         log.write(f"Wrote joint calibration: {args.out}")
         print(f"\nWrote calibration:\n{args.out}")
-        print("\nRestart live viewer; it loads this config by default.")
+        print("\nRestart live viewer; it will load this angle calibration by default.")
         return 0
     finally:
         stop_process()
