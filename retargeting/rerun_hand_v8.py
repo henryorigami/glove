@@ -157,7 +157,11 @@ def _stream_frames(manus_csv: Path, poll_s: float):
     while not manus_csv.exists():
         time.sleep(poll_s)
     with manus_csv.open(newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+        header_line = f.readline()
+        while not header_line:
+            time.sleep(poll_s)
+            header_line = f.readline()
+        fieldnames = next(csv.reader([header_line]))
         current_seq: str | None = None
         rows: list[dict[str, str]] = []
         while True:
@@ -168,7 +172,10 @@ def _stream_frames(manus_csv: Path, poll_s: float):
                 f.seek(pos)
                 continue
             try:
-                row = next(csv.DictReader([line], fieldnames=reader.fieldnames))
+                values = next(csv.reader([line]))
+                if len(values) != len(fieldnames):
+                    continue
+                row = dict(zip(fieldnames, values))
             except Exception:
                 continue
             if row is None or not row.get("frame_seq"):
