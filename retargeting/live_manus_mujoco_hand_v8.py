@@ -115,6 +115,8 @@ def run(args: argparse.Namespace) -> int:
             max_curl_rad=args.max_curl_rad,
             thumb_max_curl_rad=args.thumb_max_curl_rad,
             smoothness=args.angle_smoothness,
+            finger_sign=args.finger_sign,
+            thumb_sign=args.thumb_sign,
         )
         log.write("Retarget mode: angle/curl-only")
     else:
@@ -314,8 +316,10 @@ def main() -> int:
     parser.add_argument("--regularization", type=float, default=0.03)
     parser.add_argument("--smoothness", type=float, default=0.2)
     parser.add_argument("--angle-smoothness", type=float, default=0.25)
-    parser.add_argument("--max-curl-rad", type=float, default=1.65)
-    parser.add_argument("--thumb-max-curl-rad", type=float, default=1.35)
+    parser.add_argument("--max-curl-rad", type=float, default=2.25)
+    parser.add_argument("--thumb-max-curl-rad", type=float, default=1.95)
+    parser.add_argument("--finger-sign", type=float, choices=[-1.0, 1.0], default=-1.0)
+    parser.add_argument("--thumb-sign", type=float, choices=[-1.0, 1.0], default=1.0)
     parser.add_argument("--display-alpha", type=float, default=0.9, help="0..1 smoothing for displayed qpos")
     parser.add_argument("--display-hz", type=float, default=120.0)
     parser.add_argument(

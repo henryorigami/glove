@@ -55,6 +55,8 @@ Useful options:
 python -m retargeting.live_manus_mujoco_hand_v8 `
   --retarget-mode angle `
   --solve-every 1 `
+  --finger-sign -1 `
+  --thumb-sign 1 `
   --display-alpha 0.9 `
   --wrist-mode world
 ```
@@ -66,6 +68,9 @@ against the older point-IK path:
 ```powershell
 python -m retargeting.live_manus_mujoco_hand_v8 --retarget-mode ik
 ```
+
+If the four fingers curl backward, use `--finger-sign -1` or `--finger-sign 1`.
+If only the thumb curls backward, use `--thumb-sign -1` or `--thumb-sign 1`.
 
 The live script still records MANUS CSVs under:
 

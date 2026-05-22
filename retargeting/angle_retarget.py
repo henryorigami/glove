@@ -48,9 +48,11 @@ class AngleRetargeter:
     """
 
     urdf_path: object = DEFAULT_URDF
-    max_curl_rad: float = 1.65
-    thumb_max_curl_rad: float = 1.35
+    max_curl_rad: float = 2.25
+    thumb_max_curl_rad: float = 1.95
     smoothness: float = 0.35
+    finger_sign: float = -1.0
+    thumb_sign: float = 1.0
     neutral_bends: dict[str, list[float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -102,12 +104,12 @@ class AngleRetargeter:
             "max_curl_rad": float(np.max(curls)) if curls else 0.0,
         }
 
-    def _set_joint(self, q: np.ndarray, joint: str, value: float, max_abs: float) -> None:
+    def _set_joint(self, q: np.ndarray, joint: str, value: float, max_abs: float, group_sign: float = 1.0) -> None:
         idx = self.name_to_idx.get(joint)
         if idx is None:
             return
         sign = float(self.forward_signs.get(joint, 1.0))
-        q[idx] = sign * float(np.clip(value, 0.0, max_abs))
+        q[idx] = group_sign * sign * float(np.clip(value, 0.0, max_abs))
 
     def _apply_finger(self, q: np.ndarray, joints: list[str], bends: list[float]) -> None:
         # V9 names are distal-to-base in the URDF export: x3, x2, x1, x0.
@@ -115,18 +117,28 @@ class AngleRetargeter:
         distal, middle, proximal, base = joints
         del base
         b0 = bends[0] if len(bends) > 0 else 0.0
-        b1 = bends[1] if len(bends) > 1 else b0 * 0.6
-        b2 = bends[2] if len(bends) > 2 else b1 * 0.6
-        self._set_joint(q, proximal, 0.95 * b0, self.max_curl_rad)
-        self._set_joint(q, middle, 0.90 * b1, self.max_curl_rad)
-        self._set_joint(q, distal, 0.65 * b2, self.max_curl_rad)
+        b1 = bends[1] if len(bends) > 1 else 0.0
+        b2 = bends[2] if len(bends) > 2 else 0.0
+        total = b0 + b1 + b2
+
+        # MANUS often reports most visible curl near the proximal segment.
+        # Couple that curl down the finger so DIP/PIP visibly participate
+        # instead of leaving the model with one giant knuckle bend.
+        proximal_v = max(1.15 * b0, 0.50 * total)
+        middle_v = max(1.05 * b1, 0.36 * total)
+        distal_v = max(0.85 * b2, 0.24 * total)
+        self._set_joint(q, proximal, proximal_v, self.max_curl_rad, self.finger_sign)
+        self._set_joint(q, middle, middle_v, self.max_curl_rad, self.finger_sign)
+        self._set_joint(q, distal, distal_v, self.max_curl_rad, self.finger_sign)
 
     def _apply_thumb(self, q: np.ndarray, bends: list[float]) -> None:
         # Thumb has one extra V9 joint. Hold the root/opposition-ish joints calm
         # until we have a proper hand-specific calibration.
         b0 = bends[0] if len(bends) > 0 else 0.0
-        b1 = bends[1] if len(bends) > 1 else b0 * 0.6
-        b2 = bends[2] if len(bends) > 2 else b1 * 0.6
-        self._set_joint(q, "t2", 0.85 * b0, self.thumb_max_curl_rad)
-        self._set_joint(q, "t3", 0.80 * b1, self.thumb_max_curl_rad)
-        self._set_joint(q, "t4", 0.60 * b2, self.thumb_max_curl_rad)
+        b1 = bends[1] if len(bends) > 1 else 0.0
+        b2 = bends[2] if len(bends) > 2 else 0.0
+        total = b0 + b1 + b2
+        self._set_joint(q, "t1", max(0.45 * total, 0.80 * b0), self.thumb_max_curl_rad, self.thumb_sign)
+        self._set_joint(q, "t2", max(0.40 * total, 0.95 * b0), self.thumb_max_curl_rad, self.thumb_sign)
+        self._set_joint(q, "t3", max(0.34 * total, 0.90 * b1), self.thumb_max_curl_rad, self.thumb_sign)
+        self._set_joint(q, "t4", max(0.24 * total, 0.75 * b2), self.thumb_max_curl_rad, self.thumb_sign)
