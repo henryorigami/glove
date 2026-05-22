@@ -53,8 +53,8 @@ Useful options:
 ```powershell
 python -m retargeting.live_manus_mujoco_hand_v8 `
   --solve-every 1 `
-  --max-nfev 18 `
-  --display-alpha 0.65 `
+  --max-nfev 8 `
+  --display-alpha 0.9 `
   --wrist-mode local
 ```
 
