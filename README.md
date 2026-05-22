@@ -81,3 +81,14 @@ python -m calibration.solve <session-dir>
 
 Two-phase capture: ~30s full rotation, then ~10s wrist stationary. Solver outputs
 `R_X` (rotation) and `t_X` (translation) from Vive tracker frame to Manus wrist frame.
+
+## Retargeting
+
+Retarget MANUS raw skeleton frames to the 21-DOF Hand V8 URDF:
+
+```
+python -m retargeting.retarget_hand_v8 --manus-csv <session>\manus_raw_skeleton.csv --out <session>\retarget_hand_v8.csv --max-frames 1000
+```
+
+The output is one row per MANUS frame with the 21 URDF joint angles plus IK
+diagnostics. See `retargeting/README.md`.
