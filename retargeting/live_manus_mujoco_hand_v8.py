@@ -128,7 +128,7 @@ def apply_named_qpos(
         v = float(value)
         if limits:
             joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-            if joint_id >= 0:
+            if joint_id >= 0 and model.jnt_limited[joint_id]:
                 lo, hi = model.jnt_range[joint_id]
                 v = float(np.clip(v, lo, hi))
         target[adr] = v
