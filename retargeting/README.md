@@ -74,7 +74,8 @@ cd C:\Users\henry\Desktop\hand_capture
 python -m retargeting.calibrate_hand_v9
 ```
 
-The script starts MANUS Integrated, then guides you through:
+The script starts MANUS Integrated, then uses timed countdowns to guide you
+through:
 
 - neutral open hand
 - full fist
@@ -93,6 +94,12 @@ debugging:
 
 ```powershell
 python -m retargeting.live_manus_mujoco_hand_v8 --joint-calibration NONE
+```
+
+If you want manual Enter prompts instead of countdowns:
+
+```powershell
+python -m retargeting.calibrate_hand_v9 --manual-enter
 ```
 
 Stop the dashboard session before running this standalone viewer; otherwise two

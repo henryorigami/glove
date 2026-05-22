@@ -46,14 +46,16 @@ def prepare_mujoco_xml(path: Path, session_dir: Path) -> Path:
 
 
 class LiveLog:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, echo: bool = True):
         self.path = path
+        self.echo = echo
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 
     def write(self, message: str) -> None:
         line = f"[{datetime.now(timezone.utc).isoformat()}] {message}"
-        print(message, flush=True)
+        if self.echo:
+            print(message, flush=True)
         with self._lock:
             with self.path.open("a", encoding="utf-8", newline="\n") as f:
                 f.write(line + "\n")

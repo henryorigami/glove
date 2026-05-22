@@ -112,6 +112,13 @@ def collect_pose(
     return samples
 
 
+def countdown(seconds: float, label: str) -> None:
+    whole = max(1, int(round(seconds)))
+    for i in range(whole, 0, -1):
+        print(f"{label} in {i}...", flush=True)
+        time.sleep(1.0)
+
+
 def pose_medians(samples_by_pose: dict[str, list[np.ndarray]]) -> dict[str, np.ndarray]:
     medians = {}
     for pose, samples in samples_by_pose.items():
@@ -197,12 +204,15 @@ def main() -> int:
     parser.add_argument("--calibration-frames", type=int, default=10)
     parser.add_argument("--max-nfev", type=int, default=16)
     parser.add_argument("--glove-id", type=int, default=None)
+    parser.add_argument("--prep-seconds", type=float, default=5.0)
+    parser.add_argument("--manual-enter", action="store_true", help="Require Enter before each pose instead of timed countdowns")
     args = parser.parse_args()
 
     if args.session_dir is None:
         args.session_dir = _session_dir()
-    log = LiveLog(args.session_dir / "joint_calibration.log")
+    log = LiveLog(args.session_dir / "joint_calibration.log", echo=False)
     log.write(f"Joint calibration session: {args.session_dir}")
+    print(f"Joint calibration session: {args.session_dir}", flush=True)
     # Validate the MuJoCo XML early; this also writes the session-local fixed URDF.
     prepare_mujoco_xml(args.model_xml, args.session_dir)
 
@@ -226,7 +236,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop_process)
 
     try:
-        print("\nWaiting for MANUS skeleton frames...")
+        print("\nWaiting for MANUS skeleton frames...", flush=True)
         while not stop_evt.is_set():
             frame, _seq, count = latest.get()
             if frame is not None and count >= args.calibration_frames:
@@ -236,9 +246,12 @@ def main() -> int:
         if frame is None:
             raise RuntimeError("No MANUS frames arrived")
 
-        print("\nFirst: hold a relaxed open hand for neutral calibration.")
-        input("Press Enter when ready...")
-        time.sleep(0.25)
+        print("\nFirst: hold a relaxed open hand for neutral calibration.", flush=True)
+        if args.manual_enter:
+            input("Press Enter when ready...")
+            time.sleep(0.25)
+        else:
+            countdown(args.prep_seconds, "Neutral capture starts")
         frame, seq, _count = latest.get()
         if frame is None:
             raise RuntimeError("No MANUS frame available for neutral calibration")
@@ -246,12 +259,13 @@ def main() -> int:
         samples_by_pose: dict[str, list[np.ndarray]] = {}
 
         for pose_name, prompt in POSES:
-            print(f"\nPOSE: {pose_name}")
-            print(prompt)
-            input("Hold the pose, then press Enter to collect...")
-            for i in range(3, 0, -1):
-                print(f"  {i}...")
-                time.sleep(0.5)
+            print(f"\nPOSE: {pose_name}", flush=True)
+            print(prompt, flush=True)
+            if args.manual_enter:
+                input("Hold the pose, then press Enter to collect...")
+                countdown(2.0, "Collecting")
+            else:
+                countdown(args.prep_seconds, "Collecting")
             samples_by_pose[pose_name] = collect_pose(
                 pose_name,
                 latest,
