@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>hand_capture · dashboard</title>
+    <style>
+        :root {
+            --bg: #0e1116;
+            --panel: #161b22;
+            --panel-2: #1f262f;
+            --text: #d3d8de;
+            --muted: #7d8590;
+            --green: #3fb950;
+            --yellow: #d29922;
+            --red: #f85149;
+            --blue: #58a6ff;
+            --border: #30363d;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 24px;
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI",
+                  Roboto, "Helvetica Neue", Arial, sans-serif;
+            min-height: 100vh;
+        }
+        h1, h2 { margin: 0 0 12px; font-weight: 600; }
+        h1 { font-size: 20px; }
+        h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;
+             color: var(--muted); }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 16px;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .status-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 0; border-bottom: 1px solid var(--border);
+        }
+        .status-row:last-child { border-bottom: 0; }
+        .status-row .label { color: var(--muted); }
+        .status-row .value { font-variant-numeric: tabular-nums; }
+        .dot {
+            display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+            margin-right: 8px; vertical-align: middle;
+        }
+        .dot.green  { background: var(--green);  box-shadow: 0 0 8px var(--green); }
+        .dot.yellow { background: var(--yellow); }
+        .dot.red    { background: var(--red); }
+        .dot.gray   { background: #444; }
+        button {
+            background: var(--panel-2); color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px; padding: 8px 14px; cursor: pointer;
+            font: inherit;
+        }
+        button:hover { background: #2a3340; }
+        button.primary { background: var(--blue); color: #0d1117; border-color: var(--blue); }
+        button.danger  { background: var(--red);  color: white; border-color: var(--red); }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        input, textarea {
+            background: var(--panel-2); color: var(--text);
+            border: 1px solid var(--border); border-radius: 6px;
+            padding: 6px 10px; font: inherit; width: 100%;
+        }
+        textarea { resize: vertical; min-height: 60px; }
+        .field { margin-bottom: 12px; }
+        .field label { display: block; color: var(--muted); margin-bottom: 4px;
+                       font-size: 12px; }
+        .row { display: flex; gap: 8px; }
+        .row > * { flex: 1; }
+        .log {
+            background: #0a0d12; border: 1px solid var(--border);
+            border-radius: 6px; padding: 10px;
+            font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+            font-size: 12px; line-height: 1.4;
+            max-height: 280px; overflow-y: auto; white-space: pre-wrap;
+        }
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 99px;
+            font-size: 11px; background: var(--panel-2); color: var(--muted);
+        }
+        .badge.live { background: var(--red); color: white; }
+        .stats td { padding: 3px 8px 3px 0; font-variant-numeric: tabular-nums; }
+        .stats td.k { color: var(--muted); }
+        .timer { font-size: 28px; font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body>
+    <h1>
+        hand_capture
+        <span id="recording-badge" class="badge">idle</span>
+    </h1>
+
+    <div class="grid">
+        <div class="panel">
+            <h2>Session</h2>
+            <div class="status-row">
+                <span class="label">Orchestrator</span>
+                <span class="value"><span id="dot-orch" class="dot gray"></span><span id="orch-status">stopped</span></span>
+            </div>
+            <div class="status-row">
+                <span class="label">Session dir</span>
+                <span class="value" id="session-dir" style="font-size: 11px; max-width: 230px; text-align: right; word-break: break-all;">—</span>
+            </div>
+            <div class="status-row">
+                <span class="label">Calibration loaded</span>
+                <span class="value" id="cal-loaded">—</span>
+            </div>
+            <div class="row" style="margin-top: 12px;">
+                <button id="btn-session-start" class="primary">Start session</button>
+                <button id="btn-session-stop" class="danger">Stop session</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Subsystems</h2>
+            <div class="status-row">
+                <span class="label">WSL VM</span>
+                <span class="value"><span id="dot-wsl" class="dot gray"></span><span id="wsl-status">—</span></span>
+            </div>
+            <div class="status-row">
+                <span class="label">Watchman dongles in WSL</span>
+                <span class="value" id="dongles">—</span>
+            </div>
+            <div class="status-row">
+                <span class="label">Vive logger</span>
+                <span class="value"><span id="dot-vive" class="dot gray"></span><span id="vive-status">—</span></span>
+            </div>
+            <div class="status-row">
+                <span class="label">Manus logger</span>
+                <span class="value"><span id="dot-manus" class="dot gray"></span><span id="manus-status">—</span></span>
+            </div>
+            <div class="status-row">
+                <span class="label">Manus mode</span>
+                <span class="value" id="manus-mode">—</span>
+            </div>
+            <div class="status-row">
+                <span class="label">Manus dongles in WSL</span>
+                <span class="value" id="manus-usb">—</span>
+            </div>
+            <div class="status-row">
+                <span class="label">Rerun viewer</span>
+                <span class="value"><span id="dot-rerun" class="dot gray"></span><span id="rerun-status">—</span></span>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Vive stream</h2>
+            <table class="stats" style="width: 100%;">
+                <tr><td class="k">Rate</td><td><span id="vive-hz">—</span> Hz</td></tr>
+                <tr><td class="k">Pose count</td><td id="vive-count">—</td></tr>
+                <tr><td class="k">Stage</td><td id="vive-stage">—</td></tr>
+                <tr><td class="k">Warmup</td><td><span id="vive-warmup">—</span> s</td></tr>
+                <tr><td class="k">OOTX</td><td id="vive-ootx">—</td></tr>
+                <tr><td class="k">Devices seen</td><td id="vive-devices">—</td></tr>
+                <tr><td class="k">Last pose</td><td id="vive-last">—</td></tr>
+                <tr><td class="k">Last warning</td><td id="vive-warning">—</td></tr>
+            </table>
+        </div>
+
+        <div class="panel">
+            <h2>Manus stream</h2>
+            <table class="stats" style="width: 100%;">
+                <tr><td class="k">Rate</td><td><span id="manus-hz">—</span> Hz</td></tr>
+                <tr><td class="k">Skeleton frames</td><td id="manus-skel">—</td></tr>
+                <tr><td class="k">Ergonomics frames</td><td id="manus-ergo">—</td></tr>
+                <tr><td class="k">Raw device frames</td><td id="manus-raw">—</td></tr>
+                <tr><td class="k">Last frame</td><td id="manus-last">—</td></tr>
+            </table>
+        </div>
+
+        <div class="panel">
+            <h2>Episode</h2>
+            <div class="field">
+                <label>Label (e.g. "pick_cup_01")</label>
+                <input id="ep-label" type="text" placeholder="" />
+            </div>
+            <div class="field">
+                <label>Notes</label>
+                <textarea id="ep-notes" placeholder="(optional)"></textarea>
+            </div>
+            <div class="field">
+                <label>Duration (seconds, 0 = until stopped)</label>
+                <input id="ep-duration" type="number" value="30" min="0" step="1" />
+            </div>
+            <div class="row">
+                <button id="btn-ep-start" class="primary">Start episode</button>
+                <button id="btn-ep-stop" class="danger">Stop episode</button>
+            </div>
+            <div style="margin-top: 16px; text-align: center;">
+                <div class="timer" id="ep-timer">0:00</div>
+                <div class="badge" id="ep-info">no active episode</div>
+                <div style="margin-top: 6px; color: var(--muted); font-size: 12px;">
+                    Total episodes: <span id="ep-total">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Recovery actions</h2>
+            <div class="row" style="margin-bottom: 8px;">
+                <button id="btn-wake-bs">Wake base stations</button>
+                <button id="btn-reattach">Re-attach USB</button>
+            </div>
+            <div class="row" style="margin-bottom: 8px;">
+                <button id="btn-pair">Pair tracker (30s)</button>
+                <button id="btn-recalibrate">Force recalibrate</button>
+            </div>
+            <div class="row" style="margin-bottom: 8px;">
+                <button id="btn-reattach-manus">Re-attach MANUS</button>
+            </div>
+            <div style="color: var(--muted); font-size: 12px;">
+                <b>Wake / Re-attach</b>: safe while recording.<br>
+                <b>Pair</b>: pauses Vive ~30s; hold the tracker button until LED stops blinking blue.<br>
+                <b>Force recalibrate</b>: wipes libsurvive's cached config and forces fresh OOTX. Use after lighthouse channel/position changes. Move the tracker continuously for ~20s after clicking.<br>
+                <b>Re-attach MANUS</b>: attaches the MANUS USB dongle to WSL for Core Integrated mode.
+            </div>
+        </div>
+
+        <div class="panel" style="grid-column: 1 / -1;">
+            <h2>Recent log</h2>
+            <div class="log" id="log">(waiting for messages...)</div>
+        </div>
+    </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmtTime = (sec) => {
+    sec = Math.max(0, sec | 0);
+    const m = (sec / 60) | 0, s = sec % 60;
+    return `${m}:${s.toString().padStart(2,'0')}`;
+};
+const fmtAgo = (ns) => {
+    if (!ns) return "—";
+    const ago = (Date.now() - ns / 1e6) / 1000;
+    if (ago < 1) return `${(ago*1000)|0} ms ago`;
+    if (ago < 60) return `${ago.toFixed(1)} s ago`;
+    return `${(ago/60).toFixed(1)} min ago`;
+};
+
+async function post(url, body) {
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    return r.json();
+}
+
+$('btn-session-start').onclick = async () => {
+    await post('/session/start');
+};
+$('btn-session-stop').onclick = async () => {
+    await post('/session/stop');
+};
+$('btn-ep-start').onclick = async () => {
+    await post('/episode/start', {
+        label: $('ep-label').value,
+        notes: $('ep-notes').value,
+        duration_s: parseFloat($('ep-duration').value || '0'),
+    });
+};
+$('btn-ep-stop').onclick = async () => {
+    await post('/episode/stop');
+};
+$('btn-wake-bs').onclick = async () => {
+    const r = await post('/actions/wake-bs');
+    appendLog('[ui] wake-bs -> ' + JSON.stringify(r));
+};
+$('btn-reattach').onclick = async () => {
+    const r = await post('/actions/reattach-usb');
+    appendLog('[ui] reattach-usb -> ' + JSON.stringify(r));
+};
+$('btn-reattach-manus').onclick = async () => {
+    const r = await post('/actions/reattach-manus');
+    appendLog('[ui] reattach-manus -> ' + JSON.stringify(r));
+};
+$('btn-recalibrate').onclick = async () => {
+    if (!confirm('Force recalibrate:\n• Wipes libsurvive cached config.\n• Restarts Vive logger with --force-ootx --force-calibrate.\n• You MUST move the tracker for ~20s after this for it to seed.\n\nProceed?')) return;
+    appendLog('[ui] force-recalibrate starting...');
+    const r = await post('/actions/force-recalibrate');
+    appendLog('[ui] force-recalibrate -> ' + JSON.stringify(r).slice(0, 200));
+};
+$('btn-pair').onclick = async () => {
+    if (!confirm('Pair tracker:\n• Hold the tracker button until LED is solid.\n• Vive logger will pause for ~30 seconds.\n\nProceed?')) return;
+    appendLog('[ui] pair-tracker starting (30s)... hold the tracker button NOW');
+    const btn = $('btn-pair');
+    btn.disabled = true; btn.textContent = 'Pairing...';
+    try {
+        const r = await post('/actions/pair-tracker', {duration_s: 30});
+        appendLog('[ui] pair done. paired_hint=' + r.paired_hint);
+    } finally {
+        btn.disabled = false; btn.textContent = 'Pair tracker (30s)';
+    }
+};
+
+function appendLog(line) {
+    const el = $('log');
+    el.textContent = (el.textContent + '\n' + line).split('\n').slice(-50).join('\n');
+    el.scrollTop = el.scrollHeight;
+}
+
+function setDot(id, color) {
+    $(id).className = 'dot ' + color;
+}
+
+function render(status) {
+    if (!status.orchestrator_running) {
+        setDot('dot-orch', 'gray');  $('orch-status').textContent = 'stopped';
+        setDot('dot-wsl', 'gray');   $('wsl-status').textContent = '—';
+        setDot('dot-vive', 'gray');  $('vive-status').textContent = '—';
+        setDot('dot-manus', 'gray'); $('manus-status').textContent = '—';
+        setDot('dot-rerun', 'gray'); $('rerun-status').textContent = '—';
+        $('manus-mode').textContent = '—';
+        $('manus-usb').textContent = '—';
+        $('session-dir').textContent = '—';
+        $('cal-loaded').textContent = '—';
+        $('recording-badge').className = 'badge';
+        $('recording-badge').textContent = 'idle';
+        $('ep-info').textContent = 'session not started';
+        return;
+    }
+    setDot('dot-orch', 'green'); $('orch-status').textContent = 'running';
+    $('session-dir').textContent = status.session_dir || '—';
+    $('cal-loaded').textContent =
+        (status.calibration_loaded || []).join(', ') || 'none';
+
+    setDot('dot-wsl', status.wsl_alive ? 'green' : 'red');
+    $('wsl-status').textContent = status.wsl_alive ? 'alive' : 'down';
+
+    $('dongles').textContent = status.dongles_attached;
+
+    setDot('dot-vive', status.vive_alive ? 'green' : 'red');
+    $('vive-status').textContent = status.vive_alive ? 'alive' : 'down';
+
+    setDot('dot-manus', status.manus_alive ? 'green' : 'red');
+    $('manus-status').textContent = status.manus_alive ? 'alive' : 'down';
+    $('manus-mode').textContent = status.manus_mode || '—';
+    $('manus-usb').textContent = status.manus_usb_attached ?? '—';
+
+    setDot('dot-rerun', status.rerun_spawned ? 'green' : 'gray');
+    $('rerun-status').textContent = status.rerun_spawned ? 'open' : 'not spawned';
+
+    const vs = status.vive_stats || {};
+    $('vive-hz').textContent = (vs.rate_hz || 0).toFixed(1);
+    $('vive-count').textContent = vs.pose_count || 0;
+    $('vive-stage').textContent = vs.stage || '—';
+    $('vive-warmup').textContent = (vs.warmup_s || 0).toFixed(0);
+    $('vive-ootx').textContent = (vs.ootx_seen || []).join(', ') || '—';
+    $('vive-last').textContent = fmtAgo(vs.last_pose_wall_ns);
+    $('vive-devices').textContent =
+        Object.keys(vs.devices_seen || {}).join(', ') || '—';
+    $('vive-warning').textContent = vs.last_warning || '—';
+
+    const ms = status.manus_stats || {};
+    $('manus-hz').textContent = (ms.rate_hz || 0).toFixed(1);
+    $('manus-skel').textContent = ms.skeleton_frames || 0;
+    $('manus-ergo').textContent = ms.ergonomics_frames || 0;
+    $('manus-raw').textContent = ms.raw_device_frames || 0;
+    $('manus-last').textContent = fmtAgo(ms.last_frame_wall_ns);
+
+    $('ep-total').textContent = (status.total_episodes || 0);
+    if (status.recording) {
+        $('recording-badge').className = 'badge live';
+        $('recording-badge').textContent = '● RECORDING';
+        $('ep-info').textContent =
+            `episode #${status.current_episode_idx} active`;
+        $('ep-timer').textContent =
+            fmtTime(status.current_episode_elapsed_s || 0);
+    } else {
+        $('recording-badge').className = 'badge';
+        $('recording-badge').textContent = 'idle';
+        $('ep-info').textContent = 'no active episode';
+        $('ep-timer').textContent = '0:00';
+    }
+
+    if (status.recent_log) {
+        $('log').textContent = status.recent_log.join('\n');
+        $('log').scrollTop = $('log').scrollHeight;
+    }
+}
+
+function connectWS() {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = (ev) => {
+        try { render(JSON.parse(ev.data)); }
+        catch (e) { console.error(e); }
+    };
+    ws.onclose = () => { setTimeout(connectWS, 1500); };
+    ws.onerror = () => { try { ws.close(); } catch(_){} };
+}
+connectWS();
+</script>
+</body>
+</html>

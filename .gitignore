@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+recordings/
+backups/
+calibration/profiles/*.json
+!calibration/profiles/.gitkeep
+calibration/libsurvive_cache/*.json
+!calibration/libsurvive_cache/.gitkeep
+
+*.rrd
+*.log
+.vscode/
+.idea/
+
+# Generated native binaries
+linux_manus_logger/manus_integrated_logger
+linux_manus_logger/*.exe
+
+# MANUS SDK vendor runtime blobs are large/proprietary; install locally.
+linux_manus_logger/ManusSDK/lib/
+
+# Local scratch output
+linux_manus_logger/log.txt

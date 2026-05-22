@@ -1,0 +1,10 @@
+services:
+  manus-integrated:
+    build: .
+    privileged: true
+    volumes:
+      - ./recordings:/recordings
+      - /dev/bus/usb:/dev/bus/usb
+    command:
+      - --base-dir
+      - /recordings
