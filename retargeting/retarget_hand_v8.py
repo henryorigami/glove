@@ -70,6 +70,7 @@ class HandV8Retargeter:
         segment_weight: float = 0.55,
         regularization: float = 0.02,
         smoothness: float = 0.08,
+        max_nfev: int = 80,
     ):
         self.kin = URDFKinematics(urdf_path)
         self.joint_names = list(self.kin.actuated_joints)
@@ -79,6 +80,7 @@ class HandV8Retargeter:
         self.segment_weight = segment_weight
         self.regularization = regularization
         self.smoothness = smoothness
+        self.max_nfev = max_nfev
         self.reg_weights = robot_joint_regularization_weights(self.joint_names)
         self.affine: np.ndarray | None = None
         self.finger_rot: dict[str, Rotation] = {}
@@ -173,7 +175,7 @@ class HandV8Retargeter:
             residual,
             q0,
             bounds=(self.lower, self.upper),
-            max_nfev=80,
+            max_nfev=self.max_nfev,
             xtol=1e-5,
             ftol=1e-5,
             gtol=1e-5,

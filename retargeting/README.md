@@ -37,38 +37,38 @@ Output CSV columns:
 
 The sidecar `*.summary.json` contains aggregate error and calibration stats.
 
-## Rerun Visualization
+## Live Rerun Visualization
 
-Replay a finished capture:
+Run the native live viewer. This starts MANUS Core Integrated in WSL itself and
+streams skeleton frames directly over stdout; the CSV files are still recorded
+but are no longer used as the live transport.
 
 ```powershell
-python -m retargeting.rerun_hand_v8 `
-  --manus-csv C:\Users\henry\Desktop\hand_capture\recordings\session_YYYY\manus_raw_skeleton.csv `
-  --max-frames 500 `
-  --sample-every 10
+cd C:\Users\henry\Desktop\hand_capture
+python -m retargeting.live_manus_hand_v8 --connect
 ```
 
-Follow a live session and stream into the existing dashboard Rerun viewer:
+Useful options:
 
 ```powershell
-python -m retargeting.rerun_hand_v8 `
-  --manus-csv C:\Users\henry\Desktop\hand_capture\recordings\session_YYYY\manus_raw_skeleton.csv `
-  --follow `
+python -m retargeting.live_manus_hand_v8 `
   --connect `
-  --sample-every 10
+  --sample-every 1 `
+  --mesh-every 3 `
+  --wrist-mode local
 ```
 
 Rerun will show:
 
-- `retarget/manus_wrist_points`: MANUS hand keypoints in wrist/root frame
-- `retarget/robot_targets`: robot-length-preserving target keypoints
 - `retarget/robot_hand`: solved Hand V8 keypoints and finger segments
 - `retarget/robot_mesh`: animated Hand V8 STL mesh instances
-- `retarget/joints/*`: 21 joint angle scalar streams
-- `retarget/error/*`: IK diagnostics
+- `retarget/urdf`: the Hand V8 URDF asset
+- `retarget/error/mean_tip_m`: IK diagnostic
 
-The visualizer defaults to every 10th MANUS frame and no point labels. Use
-`--sample-every 1` only when debugging frame-by-frame behavior.
+Stop the dashboard session before running this standalone viewer; otherwise two
+MANUS Core Integrated instances can fight over the same dongle. The visualizer
+uses `--wrist-mode local` by default so wrist IMU rotation is not applied twice
+to stationary fingers.
 
 ## Notes
 
@@ -76,6 +76,5 @@ The visualizer defaults to every 10th MANUS frame and no point labels. Use
 - The thumb is the least trustworthy part of this first pass because the robot
   thumb has 5 DOF while the current MANUS keypoint selection has fewer directly
   comparable points.
-- For production real-time teleop, the next step is to make this stateful and
-  run it inside the dashboard process, publishing the robot joint vector to
-  Rerun/MuJoCo at MANUS frame rate.
+- The live viewer defaults to a lower IK iteration budget than offline CSV
+  retargeting so Rerun stays close to live.

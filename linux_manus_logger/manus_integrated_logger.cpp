@@ -101,8 +101,11 @@ struct ErgoSample {
 
 class IntegratedLogger {
 public:
-    IntegratedLogger(fs::path session_dir, std::string prefix, int duration_sec)
-        : dir_(std::move(session_dir)), prefix_(std::move(prefix)), duration_sec_(duration_sec) {}
+    IntegratedLogger(fs::path session_dir, std::string prefix, int duration_sec, bool stream_jsonl)
+        : dir_(std::move(session_dir)),
+          prefix_(std::move(prefix)),
+          duration_sec_(duration_sec),
+          stream_jsonl_(stream_jsonl) {}
 
     bool start() {
         if (instance_) return false;
@@ -142,7 +145,7 @@ public:
 
         running_.store(true);
         writer_ = std::thread([this] { writer_loop(); });
-        std::printf("Linux integrated MANUS logger started: %s\n", dir_.string().c_str());
+        std::fprintf(stderr, "Linux integrated MANUS logger started: %s\n", dir_.string().c_str());
         return true;
     }
 
@@ -171,7 +174,7 @@ private:
 
     static void on_connect(const ManusHost* const host) {
         if (!host) return;
-        std::printf("Connected integrated host: %s @ %s\n", host->hostName, host->ipAddress);
+        std::fprintf(stderr, "Connected integrated host: %s @ %s\n", host->hostName, host->ipAddress);
     }
 
     static void on_disconnect(const ManusHost* const) {
@@ -326,7 +329,7 @@ private:
             meta.parent_id = info.parentId;
             map[info.nodeId] = meta;
         }
-        std::printf("Topology glove=%u nodes=%u expected=%u\n", glove_id, count, expected_count);
+        std::fprintf(stderr, "Topology glove=%u nodes=%u expected=%u\n", glove_id, count, expected_count);
         return &map;
     }
 
@@ -341,18 +344,18 @@ private:
             raw_dev_.flush();
             auto now = Clock::now();
             if (now - last_stats >= std::chrono::seconds(2)) {
-                std::printf("stats skeleton_frames=%u ergonomics_frames=%u raw_device_frames=%u skipped_bad_skeleton=%u\n",
-                            skel_frames_.load(), ergo_frames_.load(),
-                            raw_dev_frames_.load(), skel_bad_frames_.load());
-                std::fflush(stdout);
+                std::fprintf(stderr, "stats skeleton_frames=%u ergonomics_frames=%u raw_device_frames=%u skipped_bad_skeleton=%u\n",
+                             skel_frames_.load(), ergo_frames_.load(),
+                             raw_dev_frames_.load(), skel_bad_frames_.load());
+                std::fflush(stderr);
                 last_stats = now;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        std::printf("stats skeleton_frames=%u ergonomics_frames=%u raw_device_frames=%u skipped_bad_skeleton=%u\n",
-                    skel_frames_.load(), ergo_frames_.load(),
-                    raw_dev_frames_.load(), skel_bad_frames_.load());
-        std::fflush(stdout);
+        std::fprintf(stderr, "stats skeleton_frames=%u ergonomics_frames=%u raw_device_frames=%u skipped_bad_skeleton=%u\n",
+                     skel_frames_.load(), ergo_frames_.load(),
+                     raw_dev_frames_.load(), skel_bad_frames_.load());
+        std::fflush(stderr);
     }
 
     bool queues_empty() {
@@ -378,7 +381,31 @@ private:
                       << n.px << ',' << n.py << ',' << n.pz << ','
                       << n.qw << ',' << n.qx << ',' << n.qy << ',' << n.qz << '\n';
             }
+            if (stream_jsonl_) emit_skeleton_jsonl(s);
         }
+    }
+
+    void emit_skeleton_jsonl(const SkeletonSample& s) {
+        std::printf("{\"type\":\"skeleton\",\"t_mono_ns\":%lld,\"t_manus\":%llu,\"t_wall_ns\":%lld,\"glove_id\":%u,\"frame_seq\":%u,\"nodes\":[",
+                    (long long)s.t_mono_ns,
+                    (unsigned long long)s.t_manus,
+                    (long long)s.t_wall_ns,
+                    s.glove_id,
+                    s.frame_seq);
+        for (size_t i = 0; i < s.nodes.size(); ++i) {
+            const auto& n = s.nodes[i];
+            if (i) std::printf(",");
+            std::printf("{\"node_id\":%u,\"chain_type\":%d,\"side\":%d,\"finger_joint_type\":%d,\"parent_id\":%u,\"px\":%.9g,\"py\":%.9g,\"pz\":%.9g,\"qw\":%.9g,\"qx\":%.9g,\"qy\":%.9g,\"qz\":%.9g}",
+                        n.node_id,
+                        n.meta.chain_type,
+                        n.meta.side,
+                        n.meta.finger_joint_type,
+                        n.meta.parent_id,
+                        n.px, n.py, n.pz,
+                        n.qw, n.qx, n.qy, n.qz);
+        }
+        std::printf("]}\n");
+        std::fflush(stdout);
     }
 
     void drain_ergo() {
@@ -424,6 +451,7 @@ private:
     fs::path dir_;
     std::string prefix_;
     int duration_sec_ = 0;
+    bool stream_jsonl_ = false;
     Clock::time_point t0_;
     std::atomic<bool> running_{false};
 
@@ -462,11 +490,12 @@ int main(int argc, char** argv) {
     fs::path base_dir = fs::current_path();
     std::string prefix = "manus_";
     int duration = 0;
+    bool stream_jsonl = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--help") {
-            std::printf("Usage: %s [--session-dir PATH] [--duration SEC] [--prefix STR]\n", argv[0]);
+            std::printf("Usage: %s [--session-dir PATH] [--duration SEC] [--prefix STR] [--stream-jsonl]\n", argv[0]);
             return 0;
         } else if (arg == "--session-dir" && i + 1 < argc) {
             session_dir = argv[++i];
@@ -476,6 +505,8 @@ int main(int argc, char** argv) {
             prefix = argv[++i];
         } else if (arg == "--base-dir" && i + 1 < argc) {
             base_dir = argv[++i];
+        } else if (arg == "--stream-jsonl") {
+            stream_jsonl = true;
         } else {
             std::fprintf(stderr, "Unknown arg: %s\n", arg.c_str());
             return 2;
@@ -487,7 +518,7 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    IntegratedLogger logger(session_dir, prefix, duration);
+    IntegratedLogger logger(session_dir, prefix, duration, stream_jsonl);
     if (!logger.start()) return 1;
 
     const auto start = Clock::now();
@@ -500,6 +531,6 @@ int main(int argc, char** argv) {
     }
 
     logger.stop();
-    std::printf("Stopped.\n");
+    std::fprintf(stderr, "Stopped.\n");
     return 0;
 }

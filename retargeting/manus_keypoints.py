@@ -87,6 +87,32 @@ def _rows_to_frame(rows: list[dict[str, str]]) -> ManusFrame | None:
     return ManusFrame(frame_seq, t_wall_ns, glove_id, points, wrist_pos, wrist_quat)
 
 
+def frame_from_jsonl(obj: dict) -> ManusFrame | None:
+    """Convert one `--stream-jsonl` skeleton object from manus_integrated_logger."""
+    if obj.get("type") != "skeleton":
+        return None
+    nodes = obj.get("nodes") or []
+    if not nodes:
+        return None
+    rows = []
+    for node in nodes:
+        rows.append({
+            "frame_seq": str(obj["frame_seq"]),
+            "t_wall_ns": str(obj["t_wall_ns"]),
+            "glove_id": str(obj["glove_id"]),
+            "chain_type": str(node.get("chain_type", -1)),
+            "node_id": str(node.get("node_id", 0)),
+            "px": str(node.get("px", 0.0)),
+            "py": str(node.get("py", 0.0)),
+            "pz": str(node.get("pz", 0.0)),
+            "qw": str(node.get("qw", 1.0)),
+            "qx": str(node.get("qx", 0.0)),
+            "qy": str(node.get("qy", 0.0)),
+            "qz": str(node.get("qz", 0.0)),
+        })
+    return _rows_to_frame(rows)
+
+
 def frame_points_in_wrist(frame: ManusFrame) -> dict[str, list[np.ndarray]]:
     """Return points expressed in the wrist/root frame.
 
