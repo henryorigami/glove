@@ -44,7 +44,8 @@ Replay a finished capture:
 ```powershell
 python -m retargeting.rerun_hand_v8 `
   --manus-csv C:\Users\henry\Desktop\hand_capture\recordings\session_YYYY\manus_raw_skeleton.csv `
-  --max-frames 500
+  --max-frames 500 `
+  --sample-every 10
 ```
 
 Follow a live session and stream into the existing dashboard Rerun viewer:
@@ -53,7 +54,8 @@ Follow a live session and stream into the existing dashboard Rerun viewer:
 python -m retargeting.rerun_hand_v8 `
   --manus-csv C:\Users\henry\Desktop\hand_capture\recordings\session_YYYY\manus_raw_skeleton.csv `
   --follow `
-  --connect
+  --connect `
+  --sample-every 10
 ```
 
 Rerun will show:
@@ -61,8 +63,12 @@ Rerun will show:
 - `retarget/manus_wrist_points`: MANUS hand keypoints in wrist/root frame
 - `retarget/robot_targets`: robot-length-preserving target keypoints
 - `retarget/robot_hand`: solved Hand V8 keypoints and finger segments
+- `retarget/robot_mesh`: animated Hand V8 STL mesh instances
 - `retarget/joints/*`: 21 joint angle scalar streams
 - `retarget/error/*`: IK diagnostics
+
+The visualizer defaults to every 10th MANUS frame and no point labels. Use
+`--sample-every 1` only when debugging frame-by-frame behavior.
 
 ## Notes
 

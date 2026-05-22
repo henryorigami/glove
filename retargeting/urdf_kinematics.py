@@ -104,6 +104,20 @@ class URDFKinematics:
                 points[link.attrib["name"]] = np.mean(np.vstack(origins), axis=0)
         return points
 
+    def visual_meshes(self) -> list[tuple[str, Path, np.ndarray]]:
+        meshes: list[tuple[str, Path, np.ndarray]] = []
+        for link in self.root.findall("link"):
+            link_name = link.attrib["name"]
+            for visual in link.findall("visual"):
+                mesh = visual.find("geometry/mesh")
+                if mesh is None:
+                    continue
+                filename = mesh.attrib.get("filename")
+                if not filename:
+                    continue
+                meshes.append((link_name, self.urdf_path.parent / filename, _origin_matrix(visual.find("origin"))))
+        return meshes
+
     def joint_by_name(self, name: str) -> Joint:
         for joint in self.joints:
             if joint.name == name:
