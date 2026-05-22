@@ -328,7 +328,7 @@ def main() -> int:
     parser.add_argument("--urdf", type=Path, default=DEFAULT_URDF)
     parser.add_argument("--session-dir", type=Path, default=None)
     parser.add_argument("--duration", type=int, default=0, help="0 = run until viewer closes or Ctrl-C")
-    parser.add_argument("--wrist-mode", choices=["local", "world"], default="local")
+    parser.add_argument("--wrist-mode", choices=["local", "world"], default="world")
     parser.add_argument("--calibration-frames", type=int, default=10)
     parser.add_argument("--glove-id", type=int, default=None)
     parser.add_argument("--solve-every", type=int, default=1, help="Solve IK every N MANUS frames")

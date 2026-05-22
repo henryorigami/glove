@@ -55,7 +55,7 @@ python -m retargeting.live_manus_mujoco_hand_v8 `
   --solve-every 1 `
   --max-nfev 8 `
   --display-alpha 0.9 `
-  --wrist-mode local
+  --wrist-mode world
 ```
 
 The live script still records MANUS CSVs under:
@@ -66,8 +66,8 @@ C:\Users\henry\Desktop\hand_capture\recordings\live_mujoco_...
 
 Stop the dashboard session before running this standalone viewer; otherwise two
 MANUS Core Integrated instances can fight over the same dongle. The MuJoCo
-viewer uses `--wrist-mode local` by default so wrist IMU rotation is not applied
-twice to stationary fingers.
+viewer uses `--wrist-mode world` by default so global wrist rotation is removed
+before retargeting finger joints.
 
 ## Notes
 

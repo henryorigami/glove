@@ -116,8 +116,8 @@ def frame_from_jsonl(obj: dict) -> ManusFrame | None:
 def frame_points_in_wrist(frame: ManusFrame) -> dict[str, list[np.ndarray]]:
     """Return points expressed in the wrist/root frame.
 
-    MANUS raw skeleton positions are already usually root-relative, but applying
-    the inverse wrist transform makes this robust if world coordinates are used.
+    This removes global hand/wrist rotation so stationary fingers stay
+    stationary when the wearer rotates their wrist.
     """
     q = frame.wrist_quat_wxyz
     n = np.linalg.norm(q)
@@ -145,7 +145,7 @@ def frame_points_local(frame: ManusFrame) -> dict[str, list[np.ndarray]]:
     }
 
 
-def frame_points(frame: ManusFrame, wrist_mode: str = "local") -> dict[str, list[np.ndarray]]:
+def frame_points(frame: ManusFrame, wrist_mode: str = "world") -> dict[str, list[np.ndarray]]:
     if wrist_mode == "local":
         return frame_points_local(frame)
     if wrist_mode == "world":
