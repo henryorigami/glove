@@ -3,18 +3,19 @@
 This module retargets MANUS raw skeleton CSVs to the 21 revolute joints in the
 Hand V9 URDF.
 
-Current approach:
+Current live approach:
 
 1. Read MANUS raw skeleton frames from `manus_raw_skeleton.csv`.
-2. Use one open/neutral MANUS frame as calibration.
-3. Build comparable MANUS and robot keypoints for thumb/index/middle/ring/pinky.
-4. Preserve the robot hand's own segment lengths.
-5. Solve bounded IK per frame with temporal smoothing.
+2. Use one open/neutral MANUS frame as the bend baseline.
+3. Compute finger curl from MANUS bone-vector angles.
+4. Drive only the V9 flexion joints and keep twist/spread quiet.
 
-This is intentionally close to the DexPilot / DEX-Retargeting family of methods:
-track fingertip and segment-vector geometry rather than directly copying human
-joint angles, because the MANUS hand and robot hand do not have identical axes,
-link lengths, or thumb layout.
+The old point-IK solver is still available, but it is not the default anymore.
+For this hand it was too underconstrained: fingertips could be roughly right
+while intermediate joints twisted into nonsense. The default live path is now
+closer to the stable part of DexPilot / DEX-Retargeting style methods: use
+vector geometry and constraints first, then add extra DOFs only after they are
+calibrated.
 
 ## Run
 
@@ -52,10 +53,18 @@ Useful options:
 
 ```powershell
 python -m retargeting.live_manus_mujoco_hand_v8 `
+  --retarget-mode angle `
   --solve-every 1 `
-  --max-nfev 8 `
   --display-alpha 0.9 `
   --wrist-mode world
+```
+
+The live viewer defaults to `--retarget-mode angle`. That mode is fast and
+curl-only; it should not randomly twist when you rotate your wrist. To compare
+against the older point-IK path:
+
+```powershell
+python -m retargeting.live_manus_mujoco_hand_v8 --retarget-mode ik
 ```
 
 The live script still records MANUS CSVs under:
@@ -89,11 +98,13 @@ It writes:
 C:\Users\henry\Desktop\hand_capture\config\hand_v9_joint_calibration.json
 ```
 
-The live MuJoCo viewer loads that file automatically. To bypass it for
-debugging:
+The live MuJoCo viewer does not load that file automatically in angle mode,
+because bad IK-derived calibrations can corrupt an otherwise stable curl solve.
+To test a calibration explicitly:
 
 ```powershell
-python -m retargeting.live_manus_mujoco_hand_v8 --joint-calibration NONE
+python -m retargeting.live_manus_mujoco_hand_v8 `
+  --joint-calibration C:\Users\henry\Desktop\hand_capture\config\hand_v9_joint_calibration.json
 ```
 
 If you want manual Enter prompts instead of countdowns:
@@ -109,9 +120,10 @@ before retargeting finger joints.
 
 ## Notes
 
-- Use an open/neutral hand for the first frame, or pass `--calibration-frame N`.
+- For the live viewer, hold an open/neutral hand for the first second so the
+  angle baseline is sane.
 - The thumb is the least trustworthy part of this first pass because the robot
   thumb has 5 DOF while the current MANUS keypoint selection has fewer directly
   comparable points.
-- The live viewer defaults to a lower IK iteration budget than offline CSV
-  retargeting so MuJoCo stays close to live.
+- `--retarget-mode ik` is kept for experiments, but `angle` is the path to tune
+  first.

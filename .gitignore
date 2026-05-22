@@ -11,6 +11,7 @@ calibration/profiles/*.json
 !calibration/profiles/.gitkeep
 calibration/libsurvive_cache/*.json
 !calibration/libsurvive_cache/.gitkeep
+config/*.json
 
 *.rrd
 *.log

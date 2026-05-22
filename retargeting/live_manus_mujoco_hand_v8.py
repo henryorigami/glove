@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import signal
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -12,9 +13,10 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
-from retargeting.joint_calibration import DEFAULT_JOINT_CALIBRATION, apply_joint_calibration, load_joint_calibration
+from retargeting.joint_calibration import apply_joint_calibration, load_joint_calibration
 from retargeting.manus_stream import start_manus_process, stderr_printer
 from retargeting.manus_keypoints import frame_from_jsonl, frame_points
+from retargeting.angle_retarget import AngleRetargeter
 from retargeting.retarget_hand_v8 import DEFAULT_URDF, HandV8Retargeter
 
 
@@ -107,18 +109,28 @@ def run(args: argparse.Namespace) -> int:
     joint_addresses = mujoco_joint_qpos_addresses(model)
     log.write(f"MuJoCo joints: {', '.join(joint_addresses.keys())}")
 
-    retargeter = HandV8Retargeter(
-        args.urdf,
-        regularization=args.regularization,
-        smoothness=args.smoothness,
-        max_nfev=args.max_nfev,
-    )
+    if args.retarget_mode == "angle":
+        retargeter = AngleRetargeter(
+            args.urdf,
+            max_curl_rad=args.max_curl_rad,
+            thumb_max_curl_rad=args.thumb_max_curl_rad,
+            smoothness=args.angle_smoothness,
+        )
+        log.write("Retarget mode: angle/curl-only")
+    else:
+        retargeter = HandV8Retargeter(
+            args.urdf,
+            regularization=args.regularization,
+            smoothness=args.smoothness,
+            max_nfev=args.max_nfev,
+        )
+        log.write("Retarget mode: legacy point IK")
     missing = [name for name in retargeter.joint_names if name not in joint_addresses]
     if missing:
         raise RuntimeError(f"MuJoCo model is missing retarget joints: {missing}")
     joint_calibration = load_joint_calibration(args.joint_calibration)
     if joint_calibration is None:
-        log.write(f"Joint calibration: none loaded from {args.joint_calibration}")
+        log.write("Joint calibration: none")
     else:
         log.write(f"Joint calibration loaded: {args.joint_calibration}")
 
@@ -182,10 +194,11 @@ def run(args: argparse.Namespace) -> int:
                         dropped = counts["dropped"]
                         solved_seq = counts["solved_frame_seq"]
                         latest_seq = counts["latest_frame_seq"]
-                        err = latest_stats["mean_tip_error_m"] if latest_stats else float("nan")
+                        err = latest_stats.get("mean_tip_error_m", float("nan")) if latest_stats else float("nan")
+                        mode = latest_stats.get("mode", args.retarget_mode) if latest_stats else args.retarget_mode
                     lag_frames = max(0, latest_seq - solved_seq)
                     log.write(
-                        f"frames received={received} solved={solved} dropped={dropped} "
+                        f"frames mode={mode} received={received} solved={solved} dropped={dropped} "
                         f"solve_hz={solved / elapsed:.1f} lag_frames={lag_frames} tip_err={err:.4f}m"
                     )
                     last_report = now
@@ -293,21 +306,31 @@ def main() -> int:
     parser.add_argument("--session-dir", type=Path, default=None)
     parser.add_argument("--duration", type=int, default=0, help="0 = run until viewer closes or Ctrl-C")
     parser.add_argument("--wrist-mode", choices=["local", "world"], default="world")
+    parser.add_argument("--retarget-mode", choices=["angle", "ik"], default="angle")
     parser.add_argument("--calibration-frames", type=int, default=10)
     parser.add_argument("--glove-id", type=int, default=None)
     parser.add_argument("--solve-every", type=int, default=1, help="Solve IK every N MANUS frames")
     parser.add_argument("--max-nfev", type=int, default=8)
     parser.add_argument("--regularization", type=float, default=0.03)
     parser.add_argument("--smoothness", type=float, default=0.2)
+    parser.add_argument("--angle-smoothness", type=float, default=0.25)
+    parser.add_argument("--max-curl-rad", type=float, default=1.65)
+    parser.add_argument("--thumb-max-curl-rad", type=float, default=1.35)
     parser.add_argument("--display-alpha", type=float, default=0.9, help="0..1 smoothing for displayed qpos")
     parser.add_argument("--display-hz", type=float, default=120.0)
-    parser.add_argument("--joint-calibration", type=Path, default=DEFAULT_JOINT_CALIBRATION)
+    parser.add_argument(
+        "--joint-calibration",
+        type=Path,
+        default=None,
+        help="Optional joint calibration JSON. Default is off because old IK-derived calibrations can corrupt angle mode.",
+    )
     args = parser.parse_args()
     if args.session_dir is None:
         args.session_dir = _session_dir()
     args.solve_every = max(1, args.solve_every)
     args.display_alpha = float(np.clip(args.display_alpha, 0.01, 1.0))
     args.display_hz = max(15.0, float(args.display_hz))
+    args.angle_smoothness = float(np.clip(args.angle_smoothness, 0.0, 0.95))
     return run(args)
 
 
