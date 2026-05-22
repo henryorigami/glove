@@ -1,7 +1,7 @@
-# MANUS to Hand V8 Retargeting
+# MANUS to Hand V9 Retargeting
 
 This module retargets MANUS raw skeleton CSVs to the 21 revolute joints in the
-Hand V8 URDF.
+Hand V9 URDF.
 
 Current approach:
 
@@ -31,7 +31,7 @@ Output CSV columns:
 - `t_wall_ns`
 - `manus_frame_seq`
 - 21 robot joint columns in URDF order:
-  `i0 i1 i2 i3 m0 m1 m2 m3 r0 r1 r2 r3 p0 p1 p2 p3 t0 t1 t2 t3 t4`
+  `i3 i2 i1 i0 m3 m2 m1 m0 r3 r2 r1 r0 p3 p2 p1 p0 t4 t3 t2 t1 t0`
 - IK diagnostics:
   `ik_cost`, `ik_success`, `ik_nfev`, `mean_tip_error_m`
 
@@ -41,7 +41,7 @@ The sidecar `*.summary.json` contains aggregate error and calibration stats.
 
 Run the native live viewer. This starts MANUS Core Integrated in WSL itself,
 streams skeleton frames directly over stdout, retargets them, and writes the 21
-Hand V8 joint positions straight into MuJoCo.
+Hand V9 joint positions straight into MuJoCo.
 
 ```powershell
 cd C:\Users\henry\Desktop\hand_capture

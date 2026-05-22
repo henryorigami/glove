@@ -115,6 +115,7 @@ class URDFKinematics:
                 filename = mesh.attrib.get("filename")
                 if not filename:
                     continue
+                filename = filename.removeprefix("package:///").removeprefix("package://")
                 meshes.append((link_name, self.urdf_path.parent / filename, _origin_matrix(visual.find("origin"))))
         return meshes
 

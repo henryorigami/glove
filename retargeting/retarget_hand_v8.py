@@ -19,7 +19,7 @@ from retargeting.manus_keypoints import FINGER_ORDER, frame_points_in_wrist, ite
 from retargeting.urdf_kinematics import URDFKinematics
 
 
-DEFAULT_URDF = Path(r"C:\Users\henry\Downloads\Hand_V8_add_tip\Hand_V8_add_tip\robot_right_identified.urdf")
+DEFAULT_URDF = Path(r"C:\Users\henry\Downloads\Hand_V9_add_weight\Hand_V9_add_weight\robot.urdf")
 
 
 def _stack_points(points: dict[str, list[np.ndarray]]) -> tuple[list[tuple[str, int]], np.ndarray]:
@@ -273,7 +273,7 @@ def retarget_csv(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Retarget MANUS raw skeleton CSV to Hand V8 URDF joint angles.")
+    parser = argparse.ArgumentParser(description="Retarget MANUS raw skeleton CSV to the current hand URDF joint angles.")
     parser.add_argument("--manus-csv", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--urdf", type=Path, default=DEFAULT_URDF)

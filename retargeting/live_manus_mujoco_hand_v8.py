@@ -28,14 +28,29 @@ from retargeting.retarget_hand_v8 import DEFAULT_URDF, HandV8Retargeter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SESSION_ROOT = PROJECT_ROOT / "recordings"
-DEFAULT_MJCF = Path(
-    r"C:\Users\henry\Downloads\Hand_V8_add_tip\Hand_V8_add_tip\.tmp_robot_right_identified_with_actuator.mjcf"
-)
+DEFAULT_MODEL_XML = Path(r"C:\Users\henry\Downloads\Hand_V9_add_weight\Hand_V9_add_weight\robot.urdf")
 
 
 def _session_dir() -> Path:
     stamp = datetime.now(timezone.utc).strftime("live_mujoco_%Y%m%d_%H%M%SZ")
     return DEFAULT_SESSION_ROOT / stamp
+
+
+def prepare_mujoco_xml(path: Path, session_dir: Path) -> Path:
+    """Return a MuJoCo-loadable XML path.
+
+    Onshape URDF exports here use `package:///mesh.stl`, which MuJoCo does not
+    resolve on Windows. For live viewing, create a session-local URDF copy with
+    those mesh URLs rewritten to absolute mesh paths.
+    """
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if "package:///" not in text and "package://" not in text:
+        return path
+    mesh_root = path.parent.as_posix().rstrip("/") + "/"
+    fixed = text.replace("package:///", mesh_root).replace("package://", mesh_root)
+    out = session_dir / f"{path.stem}_mujoco{path.suffix}"
+    out.write_text(fixed, encoding="utf-8", newline="\n")
+    return out
 
 
 class LiveLog:
@@ -125,9 +140,10 @@ def apply_named_qpos(
 def run(args: argparse.Namespace) -> int:
     log = LiveLog(args.session_dir / "live_mujoco.log")
     log.write(f"Starting live MuJoCo retargeter session_dir={args.session_dir}")
-    log.write(f"Loading MuJoCo model: {args.mjcf}")
+    model_xml = prepare_mujoco_xml(args.model_xml, args.session_dir)
+    log.write(f"Loading MuJoCo model: {model_xml}")
 
-    model = mujoco.MjModel.from_xml_path(str(args.mjcf))
+    model = mujoco.MjModel.from_xml_path(str(model_xml))
     data = mujoco.MjData(model)
     joint_addresses = mujoco_joint_qpos_addresses(model)
     log.write(f"MuJoCo joints: {', '.join(joint_addresses.keys())}")
@@ -307,8 +323,8 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Live MANUS Integrated -> Hand V8 MuJoCo viewer.")
-    parser.add_argument("--mjcf", type=Path, default=DEFAULT_MJCF)
+    parser = argparse.ArgumentParser(description="Live MANUS Integrated -> Hand V9 MuJoCo viewer.")
+    parser.add_argument("--model-xml", "--mjcf", dest="model_xml", type=Path, default=DEFAULT_MODEL_XML)
     parser.add_argument("--urdf", type=Path, default=DEFAULT_URDF)
     parser.add_argument("--session-dir", type=Path, default=None)
     parser.add_argument("--duration", type=int, default=0, help="0 = run until viewer closes or Ctrl-C")
