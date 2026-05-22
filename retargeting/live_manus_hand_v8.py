@@ -4,6 +4,7 @@ import argparse
 import json
 import shlex
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -42,6 +43,14 @@ COLORS = {
 def _session_dir() -> Path:
     stamp = datetime.now(timezone.utc).strftime("live_retarget_%Y%m%d_%H%M%SZ")
     return DEFAULT_SESSION_ROOT / stamp
+
+
+def rerun_port_open(host: str = "127.0.0.1", port: int = 9876) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=0.25):
+            return True
+    except OSError:
+        return False
 
 
 def _flatten(points: dict[str, list[np.ndarray]]) -> tuple[list[list[float]], list[tuple[int, int, int]]]:
@@ -99,12 +108,26 @@ class RobotMeshLogger:
             )
 
 
-def start_manus_process(session_dir: Path, duration: int) -> subprocess.Popen:
+class LiveLog:
+    def __init__(self, path: Path):
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+
+    def write(self, message: str) -> None:
+        line = f"[{datetime.now(timezone.utc).isoformat()}] {message}"
+        print(message, flush=True)
+        with self._lock:
+            with self.path.open("a", encoding="utf-8", newline="\n") as f:
+                f.write(line + "\n")
+
+
+def start_manus_process(session_dir: Path, duration: int, log: LiveLog) -> subprocess.Popen:
     session_dir.mkdir(parents=True, exist_ok=True)
-    print("Attaching MANUS dongle to WSL...")
+    log.write("Attaching MANUS dongle to WSL...")
     for busid, status in attach_manus_dongle().items():
-        print(f"  {busid}: {status}")
-    print(f"WSL sees {count_manus_in_wsl()} MANUS dongle(s)")
+        log.write(f"  {busid}: {status}")
+    log.write(f"WSL sees {count_manus_in_wsl()} MANUS dongle(s)")
 
     session_wsl = wsl_path(session_dir)
     logger_dir_wsl = wsl_path(LINUX_MANUS_DIR)
@@ -123,7 +146,7 @@ def start_manus_process(session_dir: Path, duration: int) -> subprocess.Popen:
     )
 
 
-def stderr_printer(proc: subprocess.Popen, stop_evt: threading.Event) -> None:
+def stderr_printer(proc: subprocess.Popen, stop_evt: threading.Event, log: LiveLog) -> None:
     if proc.stderr is None:
         return
     for line in proc.stderr:
@@ -131,7 +154,7 @@ def stderr_printer(proc: subprocess.Popen, stop_evt: threading.Event) -> None:
             break
         clean = line.rstrip()
         if clean:
-            print(f"[manus] {clean}", flush=True)
+            log.write(f"[manus] {clean}")
 
 
 def log_frame(
@@ -161,15 +184,23 @@ def log_frame(
 
 
 def run(args: argparse.Namespace) -> int:
+    log = LiveLog(args.session_dir / "live_retarget.log")
+    log.write(f"Starting live retargeter session_dir={args.session_dir}")
     rr.init("hand_capture_live_retarget")
-    if args.connect:
+    if args.spawn:
+        log.write("Spawning Rerun viewer")
+        rr.spawn()
+    elif args.connect or rerun_port_open():
+        log.write("Connecting to existing Rerun viewer on 127.0.0.1:9876")
         rr.connect_grpc("rerun+http://127.0.0.1:9876/proxy")
     else:
+        log.write("Spawning Rerun viewer")
         rr.spawn()
     if args.save:
         rr.save(str(args.save))
     rr.log("/", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
     rr.log("retarget/urdf", rr.Asset3D(path=args.urdf), static=True)
+    rr.log("retarget/status", rr.TextLog("live MANUS retargeter started"))
 
     retargeter = HandV8Retargeter(
         args.urdf,
@@ -178,9 +209,9 @@ def run(args: argparse.Namespace) -> int:
         max_nfev=args.max_nfev,
     )
     mesh_logger = None if args.no_mesh else RobotMeshLogger(retargeter)
-    proc = start_manus_process(args.session_dir, args.duration)
+    proc = start_manus_process(args.session_dir, args.duration, log)
     stop_evt = threading.Event()
-    stderr_thread = threading.Thread(target=stderr_printer, args=(proc, stop_evt), daemon=True)
+    stderr_thread = threading.Thread(target=stderr_printer, args=(proc, stop_evt, log), daemon=True)
     stderr_thread.start()
 
     calibrated = False
@@ -216,6 +247,11 @@ def run(args: argparse.Namespace) -> int:
                 continue
 
             points = frame_points(frame, args.wrist_mode)
+            if seen % args.sample_every == 0:
+                rr.set_time("manus_frame", sequence=frame.frame_seq)
+                rr.set_time("capture_time", duration=0.0 if first_t_wall_ns is None else (frame.t_wall_ns - first_t_wall_ns) / 1e9)
+                log_hand("retarget/manus_live_input", points, radius=0.002)
+                rr.log("retarget/status/frames_seen", rr.Scalars([seen]))
             if not calibrated:
                 if seen < args.calibration_frames:
                     seen += 1
@@ -223,7 +259,9 @@ def run(args: argparse.Namespace) -> int:
                 calib = retargeter.calibrate(points)
                 first_t_wall_ns = frame.t_wall_ns
                 calibrated = True
-                print(f"Calibrated on MANUS frame {frame.frame_seq}: {calib}", flush=True)
+                msg = f"Calibrated on MANUS frame {frame.frame_seq}: {calib}"
+                log.write(msg)
+                rr.log("retarget/status", rr.TextLog(msg))
 
             assert first_t_wall_ns is not None
             if seen % args.sample_every == 0:
@@ -239,17 +277,16 @@ def run(args: argparse.Namespace) -> int:
                         args.show_manus,
                     )
                 except Exception as exc:
-                    print(f"[retarget skip] frame={frame.frame_seq} {exc}", flush=True)
+                    log.write(f"[retarget skip] frame={frame.frame_seq} {exc}")
                     seen += 1
                     continue
                 logged += 1
                 now = time.perf_counter()
                 if logged % 30 == 0 or now - last_report > 5:
                     hz = logged / max(1e-6, now - t0)
-                    print(
+                    log.write(
                         f"logged={logged} seen={seen} frame={frame.frame_seq} "
-                        f"viewer_hz={hz:.1f} tip_err={stats['mean_tip_error_m']:.4f}m",
-                        flush=True,
+                        f"viewer_hz={hz:.1f} tip_err={stats['mean_tip_error_m']:.4f}m"
                     )
                     last_report = now
             seen += 1
@@ -270,6 +307,7 @@ def main() -> int:
     parser.add_argument("--session-dir", type=Path, default=None)
     parser.add_argument("--duration", type=int, default=0, help="0 = run until Ctrl-C")
     parser.add_argument("--connect", action="store_true", help="Connect to existing Rerun viewer on 127.0.0.1:9876")
+    parser.add_argument("--spawn", action="store_true", help="Force spawning a new Rerun viewer instead of connecting to port 9876")
     parser.add_argument("--save", type=Path, default=None, help="Optional .rrd recording")
     parser.add_argument("--sample-every", type=int, default=1)
     parser.add_argument("--mesh-every", type=int, default=3, help="Log STL mesh transforms every N logged frames")
