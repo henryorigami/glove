@@ -64,6 +64,37 @@ The live script still records MANUS CSVs under:
 C:\Users\henry\Desktop\hand_capture\recordings\live_mujoco_...
 ```
 
+## Joint Calibration
+
+Run this when joints fold backward, rotate during pure finger curls, or need
+runtime limits:
+
+```powershell
+cd C:\Users\henry\Desktop\hand_capture
+python -m retargeting.calibrate_hand_v9
+```
+
+The script starts MANUS Integrated, then guides you through:
+
+- neutral open hand
+- full fist
+- index/middle/ring/pinky isolated curls
+- thumb curl
+- finger spread
+
+It writes:
+
+```text
+C:\Users\henry\Desktop\hand_capture\config\hand_v9_joint_calibration.json
+```
+
+The live MuJoCo viewer loads that file automatically. To bypass it for
+debugging:
+
+```powershell
+python -m retargeting.live_manus_mujoco_hand_v8 --joint-calibration NONE
+```
+
 Stop the dashboard session before running this standalone viewer; otherwise two
 MANUS Core Integrated instances can fight over the same dongle. The MuJoCo
 viewer uses `--wrist-mode world` by default so global wrist rotation is removed

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import shlex
 import signal
-import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -14,14 +12,8 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
-from pipeline.manus_linux_logger import (
-    LINUX_MANUS_DIR,
-    WSL_DISTRO,
-    WSL_USER,
-    attach_manus_dongle,
-    count_manus_in_wsl,
-    wsl_path,
-)
+from retargeting.joint_calibration import DEFAULT_JOINT_CALIBRATION, apply_joint_calibration, load_joint_calibration
+from retargeting.manus_stream import start_manus_process, stderr_printer
 from retargeting.manus_keypoints import frame_from_jsonl, frame_points
 from retargeting.retarget_hand_v8 import DEFAULT_URDF, HandV8Retargeter
 
@@ -65,41 +57,6 @@ class LiveLog:
         with self._lock:
             with self.path.open("a", encoding="utf-8", newline="\n") as f:
                 f.write(line + "\n")
-
-
-def start_manus_process(session_dir: Path, duration: int, log: LiveLog) -> subprocess.Popen:
-    session_dir.mkdir(parents=True, exist_ok=True)
-    log.write("Attaching MANUS dongle to WSL...")
-    for busid, status in attach_manus_dongle().items():
-        log.write(f"  {busid}: {status}")
-    log.write(f"WSL sees {count_manus_in_wsl()} MANUS dongle(s)")
-
-    session_wsl = wsl_path(session_dir)
-    logger_dir_wsl = wsl_path(LINUX_MANUS_DIR)
-    duration_arg = f" --duration {duration}" if duration > 0 else ""
-    cmd = (
-        f"cd {shlex.quote(logger_dir_wsl)} && "
-        f"./manus_integrated_logger --session-dir {shlex.quote(session_wsl)} "
-        f"--prefix manus_ --stream-jsonl{duration_arg}"
-    )
-    return subprocess.Popen(
-        ["wsl", "-d", WSL_DISTRO, "-u", WSL_USER, "--exec", "bash", "-lc", cmd],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
-
-
-def stderr_printer(proc: subprocess.Popen, stop_evt: threading.Event, log: LiveLog) -> None:
-    if proc.stderr is None:
-        return
-    for line in proc.stderr:
-        if stop_evt.is_set():
-            break
-        clean = line.rstrip()
-        if clean:
-            log.write(f"[manus] {clean}")
 
 
 def mujoco_joint_qpos_addresses(model: mujoco.MjModel) -> dict[str, int]:
@@ -157,6 +114,11 @@ def run(args: argparse.Namespace) -> int:
     missing = [name for name in retargeter.joint_names if name not in joint_addresses]
     if missing:
         raise RuntimeError(f"MuJoCo model is missing retarget joints: {missing}")
+    joint_calibration = load_joint_calibration(args.joint_calibration)
+    if joint_calibration is None:
+        log.write(f"Joint calibration: none loaded from {args.joint_calibration}")
+    else:
+        log.write(f"Joint calibration loaded: {args.joint_calibration}")
 
     proc = start_manus_process(args.session_dir, args.duration, log)
     stop_evt = threading.Event()
@@ -266,7 +228,7 @@ def run(args: argparse.Namespace) -> int:
                 continue
             solved += 1
             with lock:
-                latest_q = q.copy()
+                latest_q = apply_joint_calibration(q, retargeter.joint_names, joint_calibration)
                 latest_stats = stats
                 counts["solved"] = solved
                 counts["skipped"] = skipped
@@ -337,6 +299,7 @@ def main() -> int:
     parser.add_argument("--smoothness", type=float, default=0.2)
     parser.add_argument("--display-alpha", type=float, default=0.9, help="0..1 smoothing for displayed qpos")
     parser.add_argument("--display-hz", type=float, default=120.0)
+    parser.add_argument("--joint-calibration", type=Path, default=DEFAULT_JOINT_CALIBRATION)
     args = parser.parse_args()
     if args.session_dir is None:
         args.session_dir = _session_dir()
