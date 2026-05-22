@@ -139,7 +139,7 @@ def build_calibration(
     for name in retargeter.joint_names:
         idx = name_to_idx[name]
         finger = next((f for f, spec in FINGER_ROBOT.items() if name in spec["joints"]), None)
-        if name.endswith("0") or finger is None:
+        if (name.endswith("0") and finger != "thumb") or finger is None:
             joints[name] = {
                 "enabled": False,
                 "finger": finger,
@@ -190,6 +190,7 @@ def build_calibration(
     }
     return {
         "version": 1,
+        "angle_profile": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "kind": "hand_v9_angle_calibration",
         "wrist_mode": wrist_mode,
@@ -203,17 +204,18 @@ def build_calibration(
 def desired_joint_rom(name: str) -> float:
     if name[0] == "t":
         return {
-            "t1": 1.35,
-            "t2": 1.75,
-            "t3": 1.55,
-            "t4": 1.25,
+            "t0": 1.10,
+            "t1": 1.85,
+            "t2": 2.15,
+            "t3": 2.00,
+            "t4": 1.65,
         }.get(name, 0.0)
     if name.endswith("1"):
-        return 1.85
+        return 2.20
     if name.endswith("2"):
-        return 1.65
+        return 2.05
     if name.endswith("3"):
-        return 1.25
+        return 1.75
     return 0.0
 
 
@@ -226,8 +228,8 @@ def main() -> int:
     parser.add_argument("--wrist-mode", choices=["local", "world"], default="world")
     parser.add_argument("--pose-seconds", type=float, default=3.0)
     parser.add_argument("--calibration-frames", type=int, default=10)
-    parser.add_argument("--max-curl-rad", type=float, default=2.25)
-    parser.add_argument("--thumb-max-curl-rad", type=float, default=1.95)
+    parser.add_argument("--max-curl-rad", type=float, default=2.75)
+    parser.add_argument("--thumb-max-curl-rad", type=float, default=2.45)
     parser.add_argument("--finger-sign", type=float, choices=[-1.0, 1.0], default=-1.0)
     parser.add_argument("--thumb-sign", type=float, choices=[-1.0, 1.0], default=1.0)
     parser.add_argument("--angle-smoothness", type=float, default=0.0)

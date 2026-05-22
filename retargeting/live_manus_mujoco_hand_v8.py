@@ -136,6 +136,9 @@ def run(args: argparse.Namespace) -> int:
     elif joint_calibration.get("kind") != "hand_v9_angle_calibration":
         log.write(f"Joint calibration ignored: unsupported kind={joint_calibration.get('kind')!r}")
         joint_calibration = None
+    elif int(joint_calibration.get("angle_profile", 0)) < 2:
+        log.write("Joint calibration ignored: stale angle profile; rerun calibrate_hand_v9")
+        joint_calibration = None
     else:
         log.write(f"Joint calibration loaded: {args.joint_calibration}")
 
@@ -319,8 +322,8 @@ def main() -> int:
     parser.add_argument("--regularization", type=float, default=0.03)
     parser.add_argument("--smoothness", type=float, default=0.2)
     parser.add_argument("--angle-smoothness", type=float, default=0.25)
-    parser.add_argument("--max-curl-rad", type=float, default=2.25)
-    parser.add_argument("--thumb-max-curl-rad", type=float, default=1.95)
+    parser.add_argument("--max-curl-rad", type=float, default=2.75)
+    parser.add_argument("--thumb-max-curl-rad", type=float, default=2.45)
     parser.add_argument("--finger-sign", type=float, choices=[-1.0, 1.0], default=-1.0)
     parser.add_argument("--thumb-sign", type=float, choices=[-1.0, 1.0], default=1.0)
     parser.add_argument("--display-alpha", type=float, default=0.9, help="0..1 smoothing for displayed qpos")

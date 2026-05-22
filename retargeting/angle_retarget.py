@@ -48,8 +48,8 @@ class AngleRetargeter:
     """
 
     urdf_path: object = DEFAULT_URDF
-    max_curl_rad: float = 2.25
-    thumb_max_curl_rad: float = 1.95
+    max_curl_rad: float = 2.75
+    thumb_max_curl_rad: float = 2.45
     smoothness: float = 0.35
     finger_sign: float = -1.0
     thumb_sign: float = 1.0
@@ -124,21 +124,20 @@ class AngleRetargeter:
         # MANUS often reports most visible curl near the proximal segment.
         # Couple that curl down the finger so DIP/PIP visibly participate
         # instead of leaving the model with one giant knuckle bend.
-        proximal_v = max(1.15 * b0, 0.50 * total)
-        middle_v = max(1.05 * b1, 0.36 * total)
-        distal_v = max(0.85 * b2, 0.24 * total)
+        proximal_v = max(1.20 * b0, 0.62 * total)
+        middle_v = max(1.20 * b1, 0.52 * total)
+        distal_v = max(1.15 * b2, 0.42 * total)
         self._set_joint(q, proximal, proximal_v, self.max_curl_rad, self.finger_sign)
         self._set_joint(q, middle, middle_v, self.max_curl_rad, self.finger_sign)
         self._set_joint(q, distal, distal_v, self.max_curl_rad, self.finger_sign)
 
     def _apply_thumb(self, q: np.ndarray, bends: list[float]) -> None:
-        # Thumb has one extra V9 joint. Hold the root/opposition-ish joints calm
-        # until we have a proper hand-specific calibration.
         b0 = bends[0] if len(bends) > 0 else 0.0
         b1 = bends[1] if len(bends) > 1 else 0.0
         b2 = bends[2] if len(bends) > 2 else 0.0
         total = b0 + b1 + b2
-        self._set_joint(q, "t1", max(0.45 * total, 0.80 * b0), self.thumb_max_curl_rad, self.thumb_sign)
-        self._set_joint(q, "t2", max(0.40 * total, 0.95 * b0), self.thumb_max_curl_rad, self.thumb_sign)
-        self._set_joint(q, "t3", max(0.34 * total, 0.90 * b1), self.thumb_max_curl_rad, self.thumb_sign)
-        self._set_joint(q, "t4", max(0.24 * total, 0.75 * b2), self.thumb_max_curl_rad, self.thumb_sign)
+        self._set_joint(q, "t0", max(0.34 * total, 0.70 * b0), self.thumb_max_curl_rad, self.thumb_sign)
+        self._set_joint(q, "t1", max(0.58 * total, 1.05 * b0), self.thumb_max_curl_rad, self.thumb_sign)
+        self._set_joint(q, "t2", max(0.58 * total, 1.15 * b0), self.thumb_max_curl_rad, self.thumb_sign)
+        self._set_joint(q, "t3", max(0.48 * total, 1.10 * b1), self.thumb_max_curl_rad, self.thumb_sign)
+        self._set_joint(q, "t4", max(0.36 * total, 1.00 * b2), self.thumb_max_curl_rad, self.thumb_sign)

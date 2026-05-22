@@ -104,8 +104,8 @@ C:\Users\henry\Desktop\hand_capture\config\hand_v9_joint_calibration.json
 ```
 
 The live MuJoCo viewer loads the new angle calibration automatically. It ignores
-old IK-derived calibrations because those can corrupt an otherwise stable curl
-solve. To test a calibration explicitly:
+old IK-derived calibrations and stale angle profiles because those can corrupt
+an otherwise stable curl solve. To test a calibration explicitly:
 
 ```powershell
 python -m retargeting.live_manus_mujoco_hand_v8 `
@@ -132,3 +132,6 @@ before retargeting finger joints.
   comparable points.
 - `--retarget-mode ik` is kept for experiments, but `angle` is the path to tune
   first.
+- The angle mode intentionally drives the non-thumb base joints as fixed for
+  now, but drives thumb `t0` because that joint provides important thumb travel
+  in the V9 URDF.
