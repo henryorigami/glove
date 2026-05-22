@@ -104,11 +104,19 @@ class AngleRetargeter:
             "max_curl_rad": float(np.max(curls)) if curls else 0.0,
         }
 
-    def _set_joint(self, q: np.ndarray, joint: str, value: float, max_abs: float, group_sign: float = 1.0) -> None:
+    def _set_joint(
+        self,
+        q: np.ndarray,
+        joint: str,
+        value: float,
+        max_abs: float,
+        group_sign: float = 1.0,
+        use_model_sign: bool = True,
+    ) -> None:
         idx = self.name_to_idx.get(joint)
         if idx is None:
             return
-        sign = float(self.forward_signs.get(joint, 1.0))
+        sign = float(self.forward_signs.get(joint, 1.0)) if use_model_sign else 1.0
         q[idx] = group_sign * sign * float(np.clip(value, 0.0, max_abs))
 
     def _apply_finger(self, q: np.ndarray, joints: list[str], bends: list[float]) -> None:
@@ -127,9 +135,13 @@ class AngleRetargeter:
         proximal_v = max(1.20 * b0, 0.62 * total)
         middle_v = max(1.20 * b1, 0.52 * total)
         distal_v = max(1.15 * b2, 0.42 * total)
-        self._set_joint(q, proximal, proximal_v, self.max_curl_rad, self.finger_sign)
-        self._set_joint(q, middle, middle_v, self.max_curl_rad, self.finger_sign)
-        self._set_joint(q, distal, distal_v, self.max_curl_rad, self.finger_sign)
+        # For the V9 finger chains, the visual curl direction is consistent
+        # across x1/x2/x3 even though the simple palm-distance heuristic reports
+        # the distal x3 sign opposite. Use the observed MANUS curl sign directly
+        # for all three joints so the fingertip does not counter-rotate.
+        self._set_joint(q, proximal, proximal_v, self.max_curl_rad, self.finger_sign, use_model_sign=False)
+        self._set_joint(q, middle, middle_v, self.max_curl_rad, self.finger_sign, use_model_sign=False)
+        self._set_joint(q, distal, distal_v, self.max_curl_rad, self.finger_sign, use_model_sign=False)
 
     def _apply_thumb(self, q: np.ndarray, bends: list[float]) -> None:
         b0 = bends[0] if len(bends) > 0 else 0.0
